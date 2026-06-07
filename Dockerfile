@@ -11,8 +11,8 @@ COPY pyproject.toml requirements.txt ./
 COPY termprep/ termprep/
 COPY web_entry.py .
 
-# Install dependencies
-RUN pip install --no-cache-dir -e .
+# Install dependencies (include gunicorn for production)
+RUN pip install --no-cache-dir -e . gunicorn
 
 # Expose port
 EXPOSE 7860
