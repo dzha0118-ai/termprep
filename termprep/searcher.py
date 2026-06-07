@@ -2,8 +2,7 @@
 
 from typing import Any
 
-# Future: integrate with online dictionary APIs
-# from termprep.sources import webster, youdao, eudict
+from termprep.sources import get_available_sources
 
 
 def search_term(term: str, source: str = "all", limit: int = 20) -> list[dict[str, Any]]:
@@ -23,7 +22,7 @@ def search_term(term: str, source: str = "all", limit: int = 20) -> list[dict[st
     if source in ("local", "all"):
         results.extend(_search_local(term, limit))
 
-    # Web/API search (stub for future)
+    # Web/API search
     if source in ("web", "all"):
         results.extend(_search_web(term, limit))
 
@@ -43,6 +42,26 @@ def _search_local(term: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _search_web(term: str, limit: int) -> list[dict[str, Any]]:
-    """Search via online dictionary APIs (stub)."""
-    # TODO: integrate with dictionary APIs
-    return []
+    """Search via online dictionary APIs (Youdao, Webster, etc.)."""
+    results: list[dict[str, Any]] = []
+    sources = get_available_sources()
+    per_source = max(1, limit // max(1, len(sources)))
+
+    for src in sources:
+        if not src.available:
+            continue
+        try:
+            src_results = src.search(term, limit=per_source)
+            for r in src_results:
+                results.append({
+                    "query": r.query,
+                    "word": r.word,
+                    "type": r.word_type,
+                    "source": r.source,
+                    "score": r.score,
+                    "definition": r.definition,
+                })
+        except Exception:
+            continue
+
+    return results
