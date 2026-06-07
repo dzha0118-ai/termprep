@@ -308,7 +308,8 @@ footer {
   </p>
   <div class="hero-actions">
     <span class="btn btn-primary" onclick="copyInstall(this)">pip install termprep</span>
-    <a class="btn btn-secondary" href="https://github.com/dzha0118-ai/termprep" target="_blank">查看文档 &rarr;</a>
+    <a class="btn btn-secondary" href="https://github.com/dzha0118-ai/termprep" target="_blank">GitHub</a>
+    <span class="btn btn-secondary" onclick="copyWeb(this)">termprep web</span>
   </div>
 </section>
 
@@ -453,6 +454,10 @@ footer {
       <code>termprep export --format xlsx</code>
       <div class="desc">导出 Excel</div>
     </div>
+    <div class="cmd-card">
+      <code>termprep web</code>
+      <div class="desc">启动 Web 界面 (http://localhost:8672)</div>
+    </div>
   </div>
 </section>
 
@@ -460,7 +465,7 @@ footer {
 <section>
   <div class="section-label">Stack</div>
   <h2 class="section-title">技术架构</h2>
-  <p class="section-sub">Python CLI &middot; Click &middot; Rich &middot; SQLite &middot; jieba &middot; openpyxl</p>
+  <p class="section-sub">Python CLI &middot; FastAPI Web &middot; Click &middot; Rich &middot; SQLite &middot; jieba &middot; openpyxl</p>
   <div style="display: flex; flex-wrap: wrap; gap: 8px;">
     <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Python 3.10+</span>
     <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Click CLI</span>
@@ -472,6 +477,8 @@ footer {
     <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Wikipedia API</span>
     <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">pytest</span>
     <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">ruff</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">FastAPI</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Uvicorn</span>
   </div>
 </section>
 
@@ -485,6 +492,16 @@ function copyInstall(el) {
   navigator.clipboard.writeText(text).catch(() => {});
   el.textContent = "已复制!";
   el.style.background = "#16a34a";
+  setTimeout(() => {
+    el.textContent = text;
+    el.style.background = "";
+  }, 1500);
+}
+function copyWeb(el) {
+  const text = "termprep web";
+  navigator.clipboard.writeText(text).catch(() => {});
+  el.textContent = "启动!";
+  el.style.background = "#7c3aed";
   setTimeout(() => {
     el.textContent = text;
     el.style.background = "";
