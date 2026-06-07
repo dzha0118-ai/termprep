@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 
@@ -63,6 +64,19 @@ class PipelineIn(BaseModel):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="TermPrep", version="0.4")
+
+    # CORS — allow GitHub Pages and local dev
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "https://dzha0118-ai.github.io",
+            "http://127.0.0.1:8672",
+            "http://localhost:8672",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # ── API Routes ──
 

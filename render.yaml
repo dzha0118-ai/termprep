@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: termprep
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT web_entry:app
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
