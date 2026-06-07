@@ -1,7 +1,0 @@
-人工智能技术在医疗诊断领域的应用日益广泛。临床数据表明，AI辅助诊断可以显著提高疾病检出率。深度学习算法能够从医学影像中自动识别病变区域，为医生提供决策支持。自然语言处理技术也被应用于电子病历分析，帮助提取关键临床信息。
-
-在翻译领域，神经网络机器翻译取得了突破性进展。与传统的统计机器翻译相比，神经机器翻译在流畅度和准确性方面都有显著提升。译员可以利用计算机辅助翻译工具提高工作效率，通过术语库确保翻译一致性。
-
-合同条款中明确规定，双方应严格遵守保密协议。未经对方书面同意，任何一方不得向第三方披露与本合同相关的技术信息和商业数据。违约责任包括但不限于赔偿损失和承担诉讼费用。
-
-The software development framework provides robust APIs for database integration. Clinical studies demonstrate that machine learning models achieve state-of-the-art performance in medical image classification tasks. Natural language processing enables automated translation workflows.
