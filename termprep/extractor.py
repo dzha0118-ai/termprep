@@ -3,9 +3,6 @@
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any
-
-
 @dataclass
 class TermEntry:
     """A single extracted term."""

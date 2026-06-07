@@ -1,6 +1,6 @@
 """Tests for project analyzer."""
 
-from termprep.analyzer import analyze, analyze_file, _detect_language
+from termprep.analyzer import analyze, _detect_language
 
 
 SAMPLE_CN = (
