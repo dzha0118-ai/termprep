@@ -115,5 +115,29 @@ def db_export(output):
     console.print(f"[green]\u2714[/green] \u5df2\u5bfc\u51fa {count} \u6761\u8bcd\u6c47\u5230 {output}")
 
 
+@main.command()
+def sources():
+    """\u67e5\u770b\u53ef\u7528\u7684\u5728\u7ebf\u8bcd\u5178\u6e90\u3002"""
+    from termprep.sources import get_available_sources
+
+    srcs = get_available_sources()
+    if not srcs:
+        console.print("[yellow]\u6682\u65e0\u53ef\u7528\u7684\u5728\u7ebf\u8bcd\u5178\u6e90\u3002[/yellow]")
+        console.print("\u8bbe\u7f6e\u73af\u5883\u53d8\u91cf\u4ee5\u542f\u7528\uff1a")
+        console.print("  TERMPREP_YOUDAO_KEY / TERMPREP_YOUDAO_SECRET")
+        console.print("  TERMPREP_WEBSTER_KEY")
+        return
+
+    table = Table(title="\u53ef\u7528\u8bcd\u5178\u6e90")
+    table.add_column("\u6e90\u540d\u79f0", style="cyan")
+    table.add_column("\u72b6\u6001", style="green")
+    table.add_column("\u8bf4\u660e")
+
+    for src in srcs:
+        status = "[green]\u2714 \u5df2\u914d\u7f6e[/green]" if src.available else "[red]\u2718 \u672a\u914d\u7f6e[/red]"
+        table.add_row(src.name, status, f"API key: {src.name}")
+    console.print(table)
+
+
 if __name__ == "__main__":
     main()
