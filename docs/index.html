@@ -112,7 +112,7 @@ nav a:hover { color: var(--text); }
   font-size: 15px; font-weight: 600;
   text-decoration: none;
   transition: all .2s;
-  cursor: default;
+  cursor: pointer;
 }
 .btn-primary {
   background: var(--accent);
@@ -307,8 +307,8 @@ footer {
     专为翻译学习者打造的 CLI 工具。
   </p>
   <div class="hero-actions">
-    <span class="btn btn-primary">pip install termprep</span>
-    <span class="btn btn-secondary">查看文档 &rarr;</span>
+    <span class="btn btn-primary" onclick="copyInstall(this)">pip install termprep</span>
+    <a class="btn btn-secondary" href="https://github.com/dzha0118-ai/termprep" target="_blank">查看文档 &rarr;</a>
   </div>
 </section>
 
@@ -478,6 +478,19 @@ footer {
 <footer>
   <p>TermPrep &middot; Built for translation learners</p>
 </footer>
+
+<script>
+function copyInstall(el) {
+  const text = "pip install termprep";
+  navigator.clipboard.writeText(text).catch(() => {});
+  el.textContent = "已复制!";
+  el.style.background = "#16a34a";
+  setTimeout(() => {
+    el.textContent = text;
+    el.style.background = "";
+  }, 1500);
+}
+</script>
 
 </body>
 </html>
