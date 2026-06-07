@@ -1,0 +1,5 @@
+requests>=2.31
+rich>=13.0
+click>=8.1
+jieba>=0.42
+pytest>=7.0
