@@ -7,8 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy project files
-COPY pyproject.toml requirements.txt ./
+COPY pyproject.toml requirements.txt README.md ./
 COPY termprep/ termprep/
+COPY web/ web/
 COPY web_entry.py .
 
 # Install dependencies (include gunicorn for production)
