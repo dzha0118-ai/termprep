@@ -73,6 +73,11 @@ class YoudaoSource(DictSource):
                     query=term, word=us_phonetic, word_type="phonetic",
                     source="youdao", score=0.7, definition="US"
                 ))
+            if uk_phonetic:
+                results.append(SearchResult(
+                    query=term, word=uk_phonetic, word_type="phonetic",
+                    source="youdao", score=0.7, definition="UK"
+                ))
 
         # Web references with examples
         web = data.get("web", [])
