@@ -1,5 +1,6 @@
 """CLI entry point for TermPrep."""
 
+import os
 import click
 from rich.console import Console
 from rich.table import Table
@@ -8,6 +9,19 @@ from termprep.searcher import search_term
 from termprep.db import TermDB
 from termprep.analyzer import analyze, analyze_file, get_summary
 from termprep.extractor import extract, extract_file, get_frequency_table
+
+# Load .env file if available
+_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
+if os.path.exists(_env_path):
+    try:
+        with open(_env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+    except Exception:
+        pass
 
 console = Console()
 
@@ -57,7 +71,7 @@ def batch(input_file, output):
         for r in results:
             writer.writerow(r)
 
-    console.print(f"[green]\u2714[/green] \u5df2\u5bfc\u51fa {len(results)} \u6761\u7ed3\u679c\u5230 {output}")
+    console.print(f"[green]OK[/green] \u5df2\u5bfc\u51fa {len(results)} \u6761\u7ed3\u679c\u5230 {output}")
 
 
 @main.command(name="analyze")
@@ -103,7 +117,7 @@ def db_import(csv_file):
     """\u4ece CSV \u5bfc\u5165\u8bcd\u6c47\u3002"""
     db_conn = TermDB()
     count = db_conn.import_csv(csv_file)
-    console.print(f"[green]\u2714[/green] \u5df2\u5bfc\u5165 {count} \u6761\u8bcd\u6c47")
+    console.print(f"[green]OK[/green] \u5df2\u5bfc\u5165 {count} \u6761\u8bcd\u6c47")
 
 
 @db.command("export")
@@ -112,7 +126,7 @@ def db_export(output):
     """\u5bfc\u51fa\u8bcd\u5e93\u5230 CSV\u3002"""
     db_conn = TermDB()
     count = db_conn.export_csv(output)
-    console.print(f"[green]\u2714[/green] \u5df2\u5bfc\u51fa {count} \u6761\u8bcd\u6c47\u5230 {output}")
+    console.print(f"[green]OK[/green] \u5df2\u5bfc\u51fa {count} \u6761\u8bcd\u6c47\u5230 {output}")
 
 
 @main.command()
@@ -134,7 +148,7 @@ def sources():
     table.add_column("\u8bf4\u660e")
 
     for src in srcs:
-        status = "[green]\u2714 \u5df2\u914d\u7f6e[/green]" if src.available else "[red]\u2718 \u672a\u914d\u7f6e[/red]"
+        status = "[green]OK \u5df2\u914d\u7f6e[/green]" if src.available else "[red]X \u672a\u914d\u7f6e[/red]"
         table.add_row(src.name, status, f"API key: {src.name}")
     console.print(table)
 
