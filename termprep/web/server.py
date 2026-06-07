@@ -6,7 +6,7 @@ import json
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -179,9 +179,13 @@ def create_app() -> FastAPI:
         }
 
     # ── Serve frontend ──
-    static_ok = os.path.isdir(STATIC_DIR)
-    if static_ok:
-        app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+    @app.get("/", response_class=HTMLResponse)
+    def index_html():
+        index_path = os.path.join(STATIC_DIR, "index.html")
+        if os.path.isfile(index_path):
+            with open(index_path, encoding="utf-8") as f:
+                return f.read()
+        return HTMLResponse(status_code=404, content="index.html not found")
 
     return app
 
