@@ -2,9 +2,12 @@
 
 Sign up for API keys at: https://ai.youdao.com/
 Set env vars: TERMPREP_YOUDAO_KEY, TERMPREP_YOUDAO_SECRET
+
+Note: appKey is the 应用ID, secret is the 密钥 (NOT the API Key field).
 """
 
 import hashlib
+import time
 import uuid
 from typing import Any
 
@@ -27,18 +30,18 @@ class YoudaoSource(DictSource):
             limit: Max results.
 
         Returns:
-            List of SearchResult with translations, collocations, examples.
+            List of SearchResult with translations, examples, web references.
         """
         if not self.available:
             return []
 
         data = self._call_api(term)
-        if not data:
+        if not data or data.get("errorCode") != "0":
             return []
 
         results: list[SearchResult] = []
 
-        # Basic translation
+        # Translation
         translation = data.get("translation", [])
         for t in translation[:limit]:
             results.append(SearchResult(
@@ -50,12 +53,33 @@ class YoudaoSource(DictSource):
                 definition=data.get("query", term),
             ))
 
+        # Basic dictionary entries (synonyms, explanations)
+        basic = data.get("basic", {})
+        if basic:
+            explains = basic.get("explains", [])
+            for exp in explains[:limit]:
+                results.append(SearchResult(
+                    query=term,
+                    word=exp,
+                    word_type="explanation",
+                    source="youdao",
+                    score=0.85,
+                ))
+            # US/UK phonetic
+            us_phonetic = basic.get("us-phonetic", "")
+            uk_phonetic = basic.get("uk-phonetic", "")
+            if us_phonetic:
+                results.append(SearchResult(
+                    query=term, word=us_phonetic, word_type="phonetic",
+                    source="youdao", score=0.7, definition="US"
+                ))
+
         # Web references with examples
         web = data.get("web", [])
         for item in web[:limit]:
             word = item.get("key", "")
             values = item.get("value", [])
-            for v in values:
+            for v in values[:3]:
                 results.append(SearchResult(
                     query=term,
                     word=word,
@@ -65,28 +89,16 @@ class YoudaoSource(DictSource):
                     definition=v,
                 ))
 
-        # Basic dictionary explanation
-        basic = data.get("basic", {})
-        explains = basic.get("explains", [])
-        for exp in explains[:limit]:
-            results.append(SearchResult(
-                query=term,
-                word=exp,
-                word_type="explanation",
-                source="youdao",
-                score=0.85,
-                definition=term,
-            ))
-
         return results
 
     def _call_api(self, term: str) -> dict[str, Any]:
-        """Call Youdao API with proper signature."""
+        """Call Youdao API with proper signature (v3 + curtime)."""
         try:
             import requests
 
             salt = str(uuid.uuid4())
-            sign_str = self.api_key + term + salt + self.api_secret
+            curtime = str(int(time.time()))
+            sign_str = self.api_key + term + salt + curtime + self.api_secret
             sign = hashlib.sha256(sign_str.encode()).hexdigest()
 
             params = {
@@ -97,11 +109,12 @@ class YoudaoSource(DictSource):
                 "salt": salt,
                 "sign": sign,
                 "signType": "v3",
-                "dicts": '{"count": 5, "dicts": [["ec", "ce", "ee"]]}',
+                "curtime": curtime,
             }
             resp = requests.get(YOUDAO_API_URL, params=params, timeout=10)
             if resp.status_code == 200:
-                return resp.json()
+                data = resp.json()
+                return data
             return {}
         except Exception:
             return {}
