@@ -21,4 +21,8 @@ def test_db_init_creates_tables():
         assert "terms" in table_names
         assert "associations" in table_names
     finally:
-        os.unlink(db_path)
+        del db
+        try:
+            os.unlink(db_path)
+        except PermissionError:
+            pass  # Windows SQLite handle may not be released yet

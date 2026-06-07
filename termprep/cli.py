@@ -6,6 +6,8 @@ from rich.table import Table
 
 from termprep.searcher import search_term
 from termprep.db import TermDB
+from termprep.analyzer import analyze, analyze_file, get_summary
+from termprep.extractor import extract, extract_file, get_frequency_table
 
 console = Console()
 
@@ -56,6 +58,37 @@ def batch(input_file, output):
             writer.writerow(r)
 
     console.print(f"[green]\u2714[/green] \u5df2\u5bfc\u51fa {len(results)} \u6761\u7ed3\u679c\u5230 {output}")
+
+
+@main.command(name="analyze")
+@click.argument("file", required=False)
+@click.option("--text", "-t", default="", help="\u76f4\u63a5\u8f93\u5165\u6587\u672c\u5206\u6790")
+def _analyze(file, text):
+    """\u9879\u76ee\u5206\u6790\uff1a\u8bed\u8a00\u68c0\u6d4b\u3001\u5b57\u6570\u7edf\u8ba1\u3001\u9886\u57df\u8bc6\u522b\u3002"""
+    if file:
+        result = analyze_file(file)
+    elif text:
+        result = analyze(text)
+    else:
+        console.print("[red]\u9519\u8bef:[/red] \u8bf7\u63d0\u4f9b\u6587\u4ef6\u8def\u5f84\u6216 --text \u53c2\u6570")
+        return
+    console.print(get_summary(result))
+
+
+@main.command(name="extract")
+@click.argument("file", required=False)
+@click.option("--text", "-t", default="", help="\u76f4\u63a5\u8f93\u5165\u6587\u672c\u63d0\u53d6")
+@click.option("--top", "-n", default=30, help="\u8fd4\u56de\u672f\u8bed\u6570\u91cf")
+def _extract(file, text, top):
+    """\u672f\u8bed\u63d0\u53d6\uff1a\u9ad8\u9891\u8bcd\u3001N-gram\u3001\u4e13\u6709\u540d\u8bcd\u3002"""
+    if file:
+        terms = extract_file(file, top_n=top)
+    elif text:
+        terms = extract(text, top_n=top)
+    else:
+        console.print("[red]\u9519\u8bef:[/red] \u8bf7\u63d0\u4f9b\u6587\u4ef6\u8def\u5f84\u6216 --text \u53c2\u6570")
+        return
+    console.print(get_frequency_table(terms))
 
 
 @main.group()
