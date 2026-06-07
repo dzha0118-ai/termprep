@@ -475,5 +475,17 @@ def pipeline(file, text, project_name, top, search_limit, db_name, output, expor
     console.print(format_pipeline_result(result))
 
 
+# ============================================================
+# web
+# ============================================================
+@main.command()
+@click.option("--port", "-p", default=8672, help="\u7aef\u53e3\u53f7", type=int)
+@click.option("--host", default="127.0.0.1", help="\u7ed1\u5b9a\u5730\u5740")
+def web(host, port):
+    """\u542f\u52a8 TermPrep Web \u754c\u9762\u3002"""
+    from termprep.web import start_server
+    start_server(host=host, port=port)
+
+
 if __name__ == "__main__":
     main()

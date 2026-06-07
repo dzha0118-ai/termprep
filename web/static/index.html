@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TermPrep — 译前术语准备平台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=Noto+Sans+SC:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f7f8fa; --surface:#fff; --border:#e8eaee; --border-hover:#cdd0d6;
+  --text:#1a1d23; --text-muted:#868b94; --text-dim:#b0b4bc;
+  --accent:#2563eb; --accent-hover:#1d4ed8; --accent-soft:#eef2ff;
+  --accent-glow:rgba(37,99,235,0.1); --green:#16a34a; --green-soft:#f0fdf4;
+  --red:#dc2626; --red-soft:#fef2f2; --amber:#d97706; --amber-soft:#fffbeb;
+  --radius:10px; --radius-lg:14px;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 1px 4px rgba(0,0,0,.04);
+  --shadow-lg:0 8px 30px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04);
+  --font:Inter,Noto Sans SC,-apple-system,system-ui,sans-serif;
+  --mono:JetBrains Mono,SF Mono,Cascadia Code,monospace;
+  --nav-h:56px;
+}
+body{
+  font-family:var(--font); background:var(--bg); color:var(--text);
+  line-height:1.6; -webkit-font-smoothing:antialiased; padding-top:var(--nav-h);
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── Nav ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;height:var(--nav-h);
+  background:rgba(247,248,250,.85);backdrop-filter:blur(14px) saturate(1.1);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 20px;gap:4px;
+}
+.nav-logo{
+  font-weight:700;font-size:17px;letter-spacing:-.3px;
+  display:flex;align-items:center;gap:8px;margin-right:16px;
+  white-space:nowrap;color:var(--text);cursor:default;
+}
+.nav-logo span{
+  width:22px;height:22px;background:var(--accent);border-radius:5px;
+  display:inline-flex;align-items:center;justify-content:center;
+  color:#fff;font-size:11px;font-weight:700;
+}
+.nav-link{
+  padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;
+  color:var(--text-muted);cursor:pointer;transition:all .15s;
+  border:none;background:none;font-family:var(--font);
+  white-space:nowrap;
+}
+.nav-link:hover{color:var(--text);background:rgba(0,0,0,.04);}
+.nav-link.active{color:var(--accent);background:var(--accent-soft);}
+.nav-github{
+  margin-left:auto;font-size:13px;color:var(--text-muted);
+  display:flex;align-items:center;gap:6px;
+}
+.nav-github:hover{color:var(--text);text-decoration:none;}
+
+/* ── Page container ── */
+.page{display:none;max-width:800px;margin:0 auto;padding:32px 20px 60px}
+.page.active{display:block}
+
+/* ── Hero page ── */
+.hero{text-align:center;padding:40px 0 24px}
+.hero-badge{
+  display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;
+  text-transform:uppercase;color:var(--accent);background:var(--accent-soft);
+  padding:4px 14px;border-radius:100px;margin-bottom:20px;
+}
+.hero h1{
+  font-size:clamp(32px,5vw,52px);font-weight:700;letter-spacing:-1.2px;
+  line-height:1.1;margin-bottom:14px;
+}
+.hero h1 span{
+  background:linear-gradient(135deg,var(--accent),#7c3aed);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+}
+.hero p{font-size:16px;color:var(--text-muted);max-width:480px;margin:0 auto 28px;line-height:1.7}
+.hero-features{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:8px;max-width:560px;margin:0 auto;
+}
+.hero-feat{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:14px 16px;font-size:13px;font-weight:500;text-align:left;
+  display:flex;align-items:center;gap:10px;transition:border-color .2s;
+}
+.hero-feat:hover{border-color:var(--accent)}
+.hero-feat .icon{
+  width:28px;height:28px;border-radius:6px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+}
+.hero-feat .icon.blue{background:var(--accent-soft);color:var(--accent)}
+.hero-feat .icon.green{background:var(--green-soft);color:var(--green)}
+.hero-feat .icon.amber{background:var(--amber-soft);color:var(--amber)}
+.hero-feat .icon.purple{background:#f5f3ff;color:#7c3aed}
+
+/* ── Section headers ── */
+.page-header{margin-bottom:24px}
+.page-header .label{
+  font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--accent);margin-bottom:4px;
+}
+.page-header h2{font-size:22px;font-weight:700;letter-spacing:-.4px}
+.page-header p{font-size:14px;color:var(--text-muted);margin-top:4px}
+
+/* ── Cards ── */
+.card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+  padding:24px;margin-bottom:16px;box-shadow:var(--shadow);
+}
+.card-title{font-size:15px;font-weight:600;margin-bottom:12px}
+
+/* ── Forms ── */
+.form-group{margin-bottom:14px}
+.form-group label{
+  display:block;font-size:13px;font-weight:500;margin-bottom:4px;color:var(--text);
+}
+textarea,input[type="text"],input[type="number"],select{
+  width:100%;padding:10px 12px;border:1px solid var(--border);
+  border-radius:8px;font-size:14px;font-family:var(--font);
+  background:var(--surface);color:var(--text);transition:border-color .2s;
+  outline:none;
+}
+textarea:focus,input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+textarea{min-height:120px;resize:vertical;line-height:1.6}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:500px){.form-row{grid-template-columns:1fr}}
+
+/* ── Buttons ── */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:9px 20px;border-radius:8px;font-size:14px;font-weight:600;
+  font-family:var(--font);cursor:pointer;transition:all .15s;
+  border:none;
+}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover);box-shadow:0 2px 10px var(--accent-glow);transform:translateY(-1px)}
+.btn-secondary{background:var(--bg);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--border-hover);background:var(--surface)}
+.btn-sm{padding:6px 14px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
+
+/* ── Results ── */
+.result-box{
+  display:none;margin-top:16px;
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px 20px;
+}
+.result-box.show{display:block}
+.result-box h4{font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
+.result-box .stat-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.stat-badge{
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:6px 14px;font-size:13px;
+}
+.stat-badge strong{color:var(--text-muted);font-weight:500}
+.stat-badge span{font-weight:600;color:var(--text)}
+
+/* ── Table ── */
+.table-wrap{overflow-x:auto;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+td{padding:8px 12px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(0,0,0,.02)}
+.text-mono{font-family:var(--mono);font-size:12px}
+.text-green{color:var(--green)}
+.text-red{color:var(--red)}
+.text-muted{color:var(--text-muted)}
+
+/* ── Loading spinner ── */
+.spinner{display:none;align-items:center;gap:8px;padding:10px 0;font-size:13px;color:var(--text-muted)}
+.spinner.show{display:flex}
+.spinner-dot{
+  width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .6s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Toast ── */
+.toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:200;
+  background:#1a1d23;color:#fff;padding:10px 20px;border-radius:8px;
+  font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);
+  opacity:0;transition:opacity .25s;pointer-events:none;
+}
+.toast.show{opacity:1}
+
+/* ── Source status ── */
+.source-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.source-tag{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 12px;border-radius:100px;font-size:12px;font-weight:500;
+  border:1px solid var(--border);
+}
+.source-tag.ok{border-color:#bbf7d0;background:var(--green-soft);color:var(--green)}
+.source-tag.no{border-color:#fecaca;background:var(--red-soft);color:var(--red)}
+
+/* ── Pipeline steps ── */
+.pstep{display:flex;align-items:center;gap:12px;padding:8px 0;font-size:13px;color:var(--text-muted);border-bottom:1px solid var(--border)}
+.pstep:last-child{border-bottom:none}
+.pstep .num{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.pstep.done .num{background:var(--green-soft);color:var(--green)}
+.pstep.done{color:var(--text)}
+.pstep.pending .num{background:var(--bg);color:var(--text-dim);border:1px solid var(--border)}
+
+/* ── Responsive ── */
+@media(max-width:640px){
+  .page{padding:20px 12px 40px}
+  .card{padding:16px}
+  .hero-features{grid-template-columns:1fr 1fr}
+  .nav-link{padding:6px 10px;font-size:12px}
+}
+
+/* ── Empty state ── */
+.empty-state{text-align:center;padding:40px 0;color:var(--text-muted);font-size:14px}
+.empty-state .big{font-size:36px;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<!-- ── Toast ── -->
+<div class="toast" id="toast"></div>
+
+<!-- ── Nav ── -->
+<nav>
+  <div class="nav-logo"><span>T</span> TermPrep</div>
+  <button class="nav-link active" data-page="home">首页</button>
+  <button class="nav-link" data-page="analyze">文本分析</button>
+  <button class="nav-link" data-page="extract">术语提取</button>
+  <button class="nav-link" data-page="search">词典搜索</button>
+  <button class="nav-link" data-page="pipeline">流水线</button>
+  <button class="nav-link" data-page="db">词库管理</button>
+  <a class="nav-github" href="https://github.com/dzha0118-ai/termprep" target="_blank">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+    GitHub
+  </a>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- HOME PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-home">
+  <div class="hero">
+    <div class="hero-badge">v0.4 &middot; 译前术语准备工具</div>
+    <h1>Translate smarter,<br><span>not harder</span></h1>
+    <p>自动分析源文本、提取术语、搜索关联词汇、构建术语库。<br>专为翻译学习者打造的完整工具链。</p>
+    <div class="hero-features">
+      <div class="hero-feat"><span class="icon blue">&#9670;</span> 文本分析</div>
+      <div class="hero-feat"><span class="icon green">&#9670;</span> 术语提取</div>
+      <div class="hero-feat"><span class="icon purple">&#9670;</span> 词典搜索</div>
+      <div class="hero-feat"><span class="icon amber">&#9670;</span> 术语库管理</div>
+      <div class="hero-feat"><span class="icon blue">&#9670;</span> 一键流水线</div>
+      <div class="hero-feat"><span class="icon green">&#9670;</span> 多格式导出</div>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:560px;margin:20px auto">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div style="width:6px;height:6px;border-radius:50%;background:var(--green)"></div>
+      <span style="font-size:14px;font-weight:500">词典源状态</span>
+    </div>
+    <div class="source-list" id="home-sources"></div>
+  </div>
+
+  <div style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px">
+    点击上方导航栏开始使用
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ANALYZE PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-analyze">
+  <div class="page-header">
+    <div class="label">Analyze</div>
+    <h2>文本分析</h2>
+    <p>语言检测、字数统计、领域识别、难度评估。</p>
+  </div>
+  <div class="card">
+    <div class="form-group">
+      <label for="analyze-text">输入文本</label>
+      <textarea id="analyze-text" placeholder="粘贴要分析的文本…"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="doAnalyze()">开始分析</button>
+    <div class="spinner" id="analyze-spinner"><div class="spinner-dot"></div>分析中…</div>
+    <div class="result-box" id="analyze-result">
+      <h4>分析结果</h4>
+      <div class="stat-row" id="analyze-stats"></div>
+      <div id="analyze-detail" style="font-size:13px;color:var(--text-muted);margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- EXTRACT PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-extract">
+  <div class="page-header">
+    <div class="label">Extract</div>
+    <h2>术语提取</h2>
+    <p>高频词、N-gram、专有名词识别。</p>
+  </div>
+  <div class="card">
+    <div class="form-group">
+      <label for="extract-text">输入文本</label>
+      <textarea id="extract-text" placeholder="粘贴要提取术语的文本…"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="extract-top">提取数量</label>
+        <input type="number" id="extract-top" value="30" min="5" max="100">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="doExtract()">提取术语</button>
+    <div class="spinner" id="extract-spinner"><div class="spinner-dot"></div>提取中…</div>
+    <div class="result-box" id="extract-result">
+      <h4>提取结果</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th></tr></thead>
+          <tbody id="extract-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SEARCH PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-search">
+  <div class="page-header">
+    <div class="label">Search</div>
+    <h2>词典搜索</h2>
+    <p>搜索术语的翻译、释义、搭配和例句。</p>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="search-term">搜索词</label>
+        <input type="text" id="search-term" placeholder="输入要搜索的术语…">
+      </div>
+      <div class="form-group">
+        <label for="search-limit">结果数</label>
+        <input type="number" id="search-limit" value="10" min="1" max="50">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="doSearch()">搜索</button>
+    <div class="spinner" id="search-spinner"><div class="spinner-dot"></div>搜索中…</div>
+    <div class="result-box" id="search-result">
+      <h4>搜索结果</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>关联词</th><th>类型</th><th>来源</th><th>相关度</th></tr></thead>
+          <tbody id="search-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PIPELINE PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-pipeline">
+  <div class="page-header">
+    <div class="label">Pipeline</div>
+    <h2>全自动流水线</h2>
+    <p>分析 → 提取 → 搜索 → 入库 → 报告 → 导出，一键完成。</p>
+  </div>
+  <div class="card">
+    <div class="form-group">
+      <label for="pipeline-text">输入文本</label>
+      <textarea id="pipeline-text" placeholder="粘贴源文本…"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="pipeline-name">项目名称</label>
+        <input type="text" id="pipeline-name" value="MyProject" placeholder="项目名称">
+      </div>
+      <div class="form-group">
+        <label for="pipeline-top">提取术语数</label>
+        <input type="number" id="pipeline-top" value="20" min="5" max="100">
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="doPipeline()">运行流水线</button>
+    <div class="spinner" id="pipeline-spinner"><div class="spinner-dot"></div>运行中…</div>
+    <div class="result-box" id="pipeline-result">
+      <h4>流水线结果</h4>
+      <div id="pipeline-steps"></div>
+      <div id="pipeline-summary" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- DB PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-db">
+  <div class="page-header">
+    <div class="label">Termbase</div>
+    <h2>词库管理</h2>
+    <p>查看、搜索和管理本地术语库。</p>
+  </div>
+
+  <!-- Database list -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <span class="card-title" style="margin-bottom:0">词库列表</span>
+      <button class="btn btn-sm btn-secondary" onclick="loadDbList()">刷新</button>
+    </div>
+    <div id="db-list-content"><div class="spinner show"><div class="spinner-dot"></div>加载中…</div></div>
+  </div>
+
+  <!-- Search in database -->
+  <div class="card">
+    <div class="card-title">搜索词库</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="db-search-q">搜索词</label>
+        <input type="text" id="db-search-q" placeholder="输入关键词…">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="doDbSearch()">搜索</button>
+    <div class="spinner" id="db-search-spinner"><div class="spinner-dot"></div>搜索中…</div>
+    <div class="result-box" id="db-search-result">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>术语</th><th>翻译</th><th>类型</th><th>领域</th><th>状态</th></tr></thead>
+          <tbody id="db-search-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add term -->
+  <div class="card">
+    <div class="card-title">添加术语</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="db-add-word">术语</label>
+        <input type="text" id="db-add-word" placeholder="英文术语">
+      </div>
+      <div class="form-group">
+        <label for="db-add-trans">翻译</label>
+        <input type="text" id="db-add-trans" placeholder="中文翻译">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="db-add-type">词性</label>
+        <input type="text" id="db-add-type" placeholder="n. / v. / adj.">
+      </div>
+      <div class="form-group">
+        <label for="db-add-domain">领域</label>
+        <input type="text" id="db-add-domain" placeholder="medical / legal / tech">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="doDbAdd()">添加</button>
+    <div class="result-box" id="db-add-result" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- JAVASCRIPT -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<script>
+// ── Navigation ──
+document.querySelectorAll('.nav-link').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + btn.dataset.page).classList.add('active');
+  });
+});
+
+// ── Toast ──
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ── API helper ──
+async function api(url, data) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+async function apiGet(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Load sources on home ──
+async function loadSources() {
+  try {
+    const data = await apiGet('/api/sources');
+    const names = {youdao:'\u6709\u9053\u8bcd\u5178', webster:'Merriam-Webster', wikipedia:'Wikipedia'};
+    document.getElementById('home-sources').innerHTML = data.sources.map(s =>
+      `<span class="source-tag ${s.available ? 'ok' : 'no'}">${s.available ? '\u2713' : '\u2717'} ${names[s.name] || s.name}</span>`
+    ).join('');
+  } catch {}
+}
+loadSources();
+
+// ── Analyze ──
+async function doAnalyze() {
+  const text = document.getElementById('analyze-text').value.trim();
+  if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
+  const spinner = document.getElementById('analyze-spinner');
+  const result = document.getElementById('analyze-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  try {
+    const data = await api('/api/analyze', {text});
+    const labels = {lang:'\u8bed\u8a00', char_count:'\u5b57\u7b26\u6570', word_count:'\u8bcd\u6c47\u6570', domain:'\u9886\u57df', difficulty:'\u96be\u5ea6'};
+    document.getElementById('analyze-stats').innerHTML = Object.entries(labels).map(([k,v]) =>
+      `<span class="stat-badge"><strong>${v}</strong> <span>${data[k] ?? '-'}</span></span>`
+    ).join('');
+    document.getElementById('analyze-detail').textContent = data.summary || '';
+    result.classList.add('show');
+  } catch(e) {
+    toast('\u5206\u6790\u5931\u8d25: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+  }
+}
+
+// ── Extract ──
+async function doExtract() {
+  const text = document.getElementById('extract-text').value.trim();
+  if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
+  const top = parseInt(document.getElementById('extract-top').value) || 30;
+  const spinner = document.getElementById('extract-spinner');
+  const result = document.getElementById('extract-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  try {
+    const data = await api('/api/extract', {text, top_n: top});
+    const tbody = document.getElementById('extract-table');
+    tbody.innerHTML = data.terms.map((t, i) =>
+      `<tr><td>${i+1}</td><td><strong>${esc(t.word)}</strong></td><td>${t.freq}</td><td>${esc(t.type)}</td><td class="text-mono">${t.score}</td></tr>`
+    ).join('');
+    result.classList.add('show');
+  } catch(e) {
+    toast('\u63d0\u53d6\u5931\u8d25: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+  }
+}
+
+// ── Search ──
+async function doSearch() {
+  const term = document.getElementById('search-term').value.trim();
+  if (!term) { toast('\u8bf7\u8f93\u5165\u641c\u7d22\u8bcd'); return; }
+  const limit = parseInt(document.getElementById('search-limit').value) || 10;
+  const spinner = document.getElementById('search-spinner');
+  const result = document.getElementById('search-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  try {
+    const data = await api('/api/search', {term, limit});
+    const tbody = document.getElementById('search-table');
+    if (!data.results || data.results.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">\u672a\u627e\u5230\u7ed3\u679c</td></tr>';
+    } else {
+      tbody.innerHTML = data.results.map(r =>
+        `<tr><td><strong>${esc(r.word||'')}</strong></td><td>${esc(r.type||'')}</td><td>${esc(r.source||'')}</td><td>${typeof r.score === 'number' ? r.score.toFixed(2) : r.score}</td></tr>`
+      ).join('');
+    }
+    result.classList.add('show');
+  } catch(e) {
+    toast('\u641c\u7d22\u5931\u8d25: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+  }
+}
+
+// ── Pipeline ──
+async function doPipeline() {
+  const text = document.getElementById('pipeline-text').value.trim();
+  if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
+  const name = document.getElementById('pipeline-name').value || 'MyProject';
+  const top = parseInt(document.getElementById('pipeline-top').value) || 20;
+  const spinner = document.getElementById('pipeline-spinner');
+  const result = document.getElementById('pipeline-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  try {
+    const steps = [
+      '\u5206\u6790\u6587\u672c\u2026', '\u63d0\u53d6\u672f\u8bed\u2026',
+      '\u641c\u7d22\u5173\u8054\u8bcd\u6c47\u2026', '\u5efa\u7acb\u672f\u8bed\u5e93\u2026',
+      '\u751f\u6210\u62a5\u544a\u2026', '\u5bfc\u51fa\u5b8c\u6210\u2026'
+    ];
+    document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
+      `<div class="pstep pending"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
+    ).join('');
+
+    const data = await api('/api/pipeline', {text, project_name: name, top_n: top});
+    document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
+      `<div class="pstep done"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
+    ).join('');
+
+    const lines = [];
+    if (data.lang) lines.push(`\u8bed\u8a00: ${data.lang}`);
+    if (data.domain) lines.push(`\u9886\u57df: ${data.domain}`);
+    if (data.terms_count !== undefined) lines.push(`\u63d0\u53d6\u672f\u8bed: ${data.terms_count}`);
+    if (data.duration) lines.push(`\u8017\u65f6: ${data.duration}s`);
+    document.getElementById('pipeline-summary').textContent = lines.join(' | ') || '\u6d41\u6c34\u7ebf\u5b8c\u6210';
+    result.classList.add('show');
+  } catch(e) {
+    document.getElementById('pipeline-steps').innerHTML =
+      `<div style="color:var(--red);font-size:13px">\u6d41\u6c34\u7ebf\u5931\u8d25: ${esc(e.message)}</div>`;
+    result.classList.add('show');
+  } finally {
+    spinner.classList.remove('show');
+  }
+}
+
+// ── DB list ──
+async function loadDbList() {
+  const el = document.getElementById('db-list-content');
+  el.innerHTML = '<div class="spinner show"><div class="spinner-dot"></div>\u52a0\u8f7d\u4e2d\u2026</div>';
+  try {
+    const data = await apiGet('/api/db/list');
+    if (!data.databases || data.databases.length === 0) {
+      el.innerHTML = '<div class="empty-state"><div class="big">\ud83d\udcdd</div>\u6682\u65e0\u8bcd\u5e93\u3002\u4f7f\u7528\u547d\u4ee4\u884c `termprep db init <name>` \u521b\u5efa\u3002</div>';
+      return;
+    }
+    el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>\u540d\u79f0</th><th>\u9886\u57df</th><th>\u8bed\u8a00</th><th>\u672f\u8bed\u6570</th></tr></thead><tbody>' +
+      data.databases.map(d => `<tr><td><strong>${esc(d.name)}</strong></td><td>${esc(d.domain)||'-'}</td><td>${esc(d.lang)||'-'}</td><td>${d.total_terms}</td></tr>`).join('') +
+      '</tbody></table></div>';
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:13px">\u52a0\u8f7d\u5931\u8d25: ${esc(e.message)}</div>`;
+  }
+}
+
+// ── DB search ──
+async function doDbSearch() {
+  const q = document.getElementById('db-search-q').value.trim();
+  if (!q) { toast('\u8bf7\u8f93\u5165\u641c\u7d22\u8bcd'); return; }
+  const spinner = document.getElementById('db-search-spinner');
+  const result = document.getElementById('db-search-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  try {
+    const data = await api('/api/term/search', {query: q});
+    const tbody = document.getElementById('db-search-table');
+    if (!data.results || data.results.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">\u672a\u627e\u5230\u5339\u914d</td></tr>';
+    } else {
+      tbody.innerHTML = data.results.map(r =>
+        `<tr><td>${r.id||'-'}</td><td><strong>${esc(r.word||'')}</strong></td><td>${esc(r.translation||'')}</td><td>${esc(r.type||'')}</td><td>${esc(r.domain||'')}</td><td>${esc(r.status||'')}</td></tr>`
+      ).join('');
+    }
+    result.classList.add('show');
+  } catch(e) {
+    toast('\u641c\u7d22\u5931\u8d25: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+  }
+}
+
+// ── DB add ──
+async function doDbAdd() {
+  const word = document.getElementById('db-add-word').value.trim();
+  if (!word) { toast('\u8bf7\u8f93\u5165\u672f\u8bed'); return; }
+  try {
+    const data = await api('/api/term/add', {
+      word,
+      translation: document.getElementById('db-add-trans').value.trim(),
+      type_: document.getElementById('db-add-type').value.trim(),
+      domain: document.getElementById('db-add-domain').value.trim(),
+      status: 'draft',
+    });
+    document.getElementById('db-add-result').innerHTML =
+      `<span style="color:var(--green);font-size:13px">\u2713 \u5df2\u6dfb\u52a0\u672f\u8bed [id=${data.id}]: ${esc(word)}</span>`;
+    document.getElementById('db-add-result').classList.add('show');
+    document.getElementById('db-add-word').value = '';
+    document.getElementById('db-add-trans').value = '';
+    loadDbList();
+  } catch(e) {
+    toast('\u6dfb\u52a0\u5931\u8d25: ' + e.message);
+  }
+}
+
+function esc(s) {
+  if (typeof s !== 'string') return s;
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Load DB list on page show
+document.querySelector('[data-page="db"]').addEventListener('click', () => {
+  setTimeout(loadDbList, 100);
+});
+</script>
+</body>
+</html>
