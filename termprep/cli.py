@@ -11,6 +11,7 @@ from termprep.db import TermDB, list_termbases, init_termbase, delete_termbase
 from termprep.analyzer import analyze, analyze_file, get_summary
 from termprep.extractor import extract, extract_file, get_frequency_table
 from termprep.report import generate_report, save_report
+from termprep.pipeline import run_pipeline, format_pipeline_result
 
 # Load .env file if available
 _env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
@@ -435,6 +436,43 @@ def term_search(query, db_name):
             r.get("status", ""),
         )
     console.print(table)
+
+
+# ============================================================
+# pipeline
+# ============================================================
+@main.command()
+@click.argument("file", required=False)
+@click.option("--text", "-t", default="", help="\u76f4\u63a5\u8f93\u5165\u6587\u672c")
+@click.option("--name", "project_name", default="Untitled", help="\u9879\u76ee\u540d\u79f0")
+@click.option("--top", default=20, help="\u63d0\u53d6\u672f\u8bed\u6570\u91cf", type=int)
+@click.option("--search", "search_limit", default=5, help="\u6bcf\u4e2a\u672f\u8bed\u641c\u7d22\u7ed3\u679c\u6570", type=int)
+@click.option("--db", "db_name", default=None, help="\u8bcd\u5e93\u540d\u79f0")
+@click.option("--output", "-o", default="", help="\u62a5\u544a\u8f93\u51fa\u8def\u5f84")
+@click.option("--export", "export_fmt", default="", help="\u5bfc\u51fa\u683c\u5f0f (csv/xlsx/tbx/json, \u591a\u4e2a\u7528\u9017\u53f7\u5206\u9694)")
+@click.option("--notes", default="", help="\u9879\u76ee\u5907\u6ce8")
+def pipeline(file, text, project_name, top, search_limit, db_name, output, export_fmt, notes):
+    """\u5168\u81ea\u52a8\u8bd1\u524d\u51c6\u5907\u6d41\u6c34\u7ebf: \u5206\u6790 -> \u63d0\u53d6 -> \u641c\u7d22 -> \u8bcd\u5e93 -> \u62a5\u544a -> \u5bfc\u51fa\u3002"""
+    if not file and not text:
+        console.print("[red]\u9519\u8bef:[/red] \u8bf7\u63d0\u4f9b\u6587\u4ef6\u8def\u5f84\u6216 --text \u53c2\u6570")
+        return
+
+    export_formats = [f.strip() for f in export_fmt.split(",") if f.strip()] if export_fmt else None
+
+    with console.status("[bold green]\u8fd0\u884c\u8bd1\u524d\u51c6\u5907\u6d41\u6c34\u7ebf...[/bold green]"):
+        result = run_pipeline(
+            file_path=file,
+            text=text or None,
+            project_name=project_name,
+            top_n=top,
+            search_limit=search_limit,
+            db_name=db_name,
+            report_output=output,
+            export_formats=export_formats,
+            notes=notes,
+        )
+
+    console.print(format_pipeline_result(result))
 
 
 if __name__ == "__main__":

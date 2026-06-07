@@ -1,0 +1,116 @@
+{
+  "termbase": "test-pipeline-export",
+  "domain": "general",
+  "total": 10,
+  "stats": {
+    "confirmed": 0,
+    "by_domain": {
+      "general": 10
+    },
+    "by_status": {
+      "draft": 10
+    }
+  },
+  "terms": [
+    {
+      "id": 3,
+      "word": "Machine",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 8,
+      "word": "Machine",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 4,
+      "word": "artificial",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 9,
+      "word": "artificial",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 5,
+      "word": "intelligence",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 10,
+      "word": "intelligence",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 1,
+      "word": "learning",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 6,
+      "word": "learning",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 2,
+      "word": "subset",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    },
+    {
+      "id": 7,
+      "word": "subset",
+      "translation": "",
+      "type": "keyword",
+      "domain": "general",
+      "status": "draft",
+      "lang": "auto",
+      "notes": ""
+    }
+  ]
+}

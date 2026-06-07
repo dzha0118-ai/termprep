@@ -11,6 +11,7 @@ class TermEntry:
     score: float = 0.0
     word_type: str = ""  # keyword, ngram, proper_noun
     positions: list[int] = field(default_factory=list)  # line numbers
+    search_results: list[dict] = field(default_factory=list)  # pipeline search results
 
 
 def extract(text: str, top_n: int = 30) -> list[TermEntry]:

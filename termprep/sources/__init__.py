@@ -3,8 +3,10 @@
 from termprep.sources.base import SearchResult, DictSource
 from termprep.sources.youdao import YoudaoSource
 from termprep.sources.webster import WebsterSource
+from termprep.sources.wikipedia import WikipediaSource
 
-__all__ = ["SearchResult", "DictSource", "YoudaoSource", "WebsterSource"]
+__all__ = ["SearchResult", "DictSource", "YoudaoSource", "WebsterSource",
+           "WikipediaSource"]
 
 
 def get_available_sources() -> list[DictSource]:
@@ -12,4 +14,5 @@ def get_available_sources() -> list[DictSource]:
     sources: list[DictSource] = []
     sources.append(YoudaoSource())
     sources.append(WebsterSource())
+    sources.append(WikipediaSource())
     return sources
