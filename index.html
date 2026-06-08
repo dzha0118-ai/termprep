@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TermPrep — 译前术语准备工具</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=Noto+Sans+SC:wght@300..700&display=swap" rel="stylesheet">
+<style>
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #fafafa;
+  --surface: #ffffff;
+  --border: #eaeaea;
+  --text: #1a1a1a;
+  --text-muted: #8a8a8a;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --accent-glow: rgba(37, 99, 235, 0.08);
+  --code-bg: #f5f5f5;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-lg: 0 10px 30px rgba(0,0,0,0.06), 0 4px 8px rgba(0,0,0,0.04);
+  --font: 'Inter', 'Noto Sans SC', -apple-system, system-ui, sans-serif;
+  --mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== Header ===== */
+header {
+  position: sticky; top: 0; z-index: 100;
+  background: rgba(250,250,250,0.8);
+  backdrop-filter: blur(16px) saturate(1.1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+}
+nav {
+  max-width: 960px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  height: 56px;
+}
+.logo {
+  font-weight: 700; font-size: 18px; letter-spacing: -0.3px;
+  display: flex; align-items: center; gap: 8px;
+}
+.logo-mark {
+  width: 24px; height: 24px;
+  background: var(--accent);
+  border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 13px; font-weight: 700;
+}
+nav a {
+  color: var(--text-muted); text-decoration: none;
+  font-size: 14px; font-weight: 500;
+  transition: color .2s;
+}
+nav a:hover { color: var(--text); }
+
+/* ===== Hero ===== */
+.hero {
+  max-width: 960px; margin: 0 auto; padding: 96px 24px 64px;
+  text-align: center;
+}
+.hero-badge {
+  display: inline-block;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 12px; border-radius: 100px;
+  margin-bottom: 24px;
+}
+.hero h1 {
+  font-size: clamp(40px, 6vw, 64px);
+  font-weight: 700;
+  letter-spacing: -1.5px;
+  line-height: 1.1;
+  margin-bottom: 20px;
+}
+.hero h1 span {
+  background: linear-gradient(135deg, var(--accent), #7c3aed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero p {
+  font-size: 18px;
+  color: var(--text-muted);
+  max-width: 540px;
+  margin: 0 auto 36px;
+  line-height: 1.7;
+}
+.hero-actions {
+  display: flex; gap: 12px; justify-content: center;
+  flex-wrap: wrap;
+}
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 15px; font-weight: 600;
+  text-decoration: none;
+  transition: all .2s;
+  cursor: pointer;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+.btn-primary:hover { box-shadow: 0 4px 16px rgba(37,99,235,0.25); transform: translateY(-1px); }
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: #ccc; }
+
+/* ===== Terminal ===== */
+.terminal-wrap {
+  max-width: 720px; margin: 0 auto 80px; padding: 0 24px;
+}
+.terminal {
+  background: #1a1a1a;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.terminal-bar {
+  display: flex; align-items: center;
+  padding: 12px 16px;
+  gap: 8px;
+}
+.terminal-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+.terminal-dot:nth-child(1) { background: #ff5f57; }
+.terminal-dot:nth-child(2) { background: #febc2e; }
+.terminal-dot:nth-child(3) { background: #28c840; }
+.terminal-body {
+  padding: 20px 24px 28px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.8;
+  color: #c9d1d9;
+  overflow-x: auto;
+}
+.terminal-body .prompt { color: #58a6ff; }
+.terminal-body .cmd { color: #e6edf3; }
+.terminal-body .out { color: #8b949e; }
+.terminal-body .highlight { color: #7ee787; }
+.terminal-cursor { display: inline-block; width: 8px; height: 16px; background: #58a6ff; animation: blink 1s step-end infinite; vertical-align: text-bottom; margin-left: 4px; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ===== Sections ===== */
+section { max-width: 960px; margin: 0 auto; padding: 64px 24px; }
+.section-label {
+  font-size: 12px; font-weight: 600; letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.section-title {
+  font-size: 28px; font-weight: 700;
+  letter-spacing: -0.5px;
+  margin-bottom: 16px;
+}
+.section-sub {
+  color: var(--text-muted);
+  font-size: 16px;
+  max-width: 480px;
+  margin-bottom: 40px;
+}
+
+/* ===== Flow ===== */
+.flow { counter-reset: step; }
+.flow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.flow-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  transition: all .25s;
+  position: relative;
+}
+.flow-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 20px var(--accent-glow);
+  transform: translateY(-2px);
+}
+.flow-card .num {
+  font-size: 11px; font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 6px;
+  margin-bottom: 16px;
+}
+.flow-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.flow-card p { font-size: 13px; color: var(--text-muted); line-height: 1.6; }
+
+/* ===== Features ===== */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.feature-item {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  font-size: 14px; font-weight: 500;
+}
+.feature-item .icon {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+}
+.feature-item .icon.blue { background: #eff6ff; color: #2563eb; }
+.feature-item .icon.purple { background: #f5f3ff; color: #7c3aed; }
+.feature-item .icon.green { background: #f0fdf4; color: #16a34a; }
+.feature-item .icon.amber { background: #fffbeb; color: #d97706; }
+
+/* ===== Commands ===== */
+.cmds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 8px;
+}
+.cmd-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px;
+  transition: border-color .2s;
+}
+.cmd-card:hover { border-color: var(--accent); }
+.cmd-card code {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 4px;
+}
+.cmd-card .desc { font-size: 13px; color: var(--text-muted); }
+
+/* ===== Footer ===== */
+footer {
+  text-align: center;
+  padding: 40px 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  margin-top: 40px;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  .hero { padding: 64px 20px 40px; }
+  .flow-grid { grid-template-columns: 1fr; }
+  .features-grid { grid-template-columns: 1fr; }
+  .cmds-grid { grid-template-columns: 1fr; }
+  .terminal-body { font-size: 12px; padding: 16px; }
+}
+
+	/* ── Apple Intelligence Glow ── */
+	@property --ai-angle{ syntax:'<angle>';initial-value:0deg;inherits:false; }
+	@keyframes ai-spin{ to{--ai-angle:360deg} }
+
+	.ai-glow{
+	  position:relative;border-radius:var(--radius);
+	  background:var(--surface);transition:box-shadow .3s;
+	}
+	.ai-glow::before,.ai-glow::after{
+	  content:'';position:absolute;inset:-2px;z-index:-1;
+	  border-radius:inherit;opacity:0;transition:opacity .35s;
+	  background:conic-gradient(
+	    from var(--ai-angle),
+	    #a855f7,#6366f1,#3b82f6,#06b6d4,#10b981,#f59e0b,#ef4444,#ec4899,#a855f7
+	  );
+	  animation:ai-spin 4s linear infinite paused;
+	}
+	.ai-glow:hover::before,.ai-glow:hover::after{opacity:1;animation-play-state:running}
+	.ai-glow::before{filter:blur(16px)}
+	.ai-glow::after{filter:blur(3px)}
+	.ai-glow:hover{box-shadow:0 0 40px rgba(139,92,246,.25)}
+	.ai-glow > *{position:relative;z-index:1}
+
+	.btn-glow{
+	  display:inline-flex;align-items:center;gap:8px;
+	  padding:10px 24px;border-radius:100px;font-size:15px;font-weight:600;
+	  color:#fff;border:none;cursor:pointer;text-decoration:none;
+	  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+	  box-shadow:0 1px 8px rgba(99,102,241,.2);
+	  transition:transform .15s,box-shadow .15s,background .3s;
+	}
+	.btn-glow:hover{
+	  transform:translateY(-1px);
+	  background:linear-gradient(135deg,#8b5cf6,#a855f7,#ec4899);
+	  box-shadow:0 4px 24px rgba(139,92,246,.45);
+	}
+
+	.flow-card.ai-glow{background:var(--surface);padding:24px;border-radius:14px}
+	.flow-card.ai-glow::before,.flow-card.ai-glow::after{inset:-1px;border-radius:15px}
+</style>
+</head>
+<body>
+
+<header>
+  <nav>
+    <div class="logo">
+      <span class="logo-mark">T</span>
+      TermPrep
+    </div>
+    <a href="https://github.com/dzha0118-ai/termprep" target="_blank">GitHub</a>
+  </nav>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-badge">v0.4 &middot; 译前术语准备</div>
+  <h1>
+    Translate smarter,<br>
+    <span>not harder</span>
+  </h1>
+  <p>
+    自动分析源文本、提取术语、搜索关联词汇、构建术语库、生成译前准备报告。
+    专为翻译学习者打造的 CLI 工具。
+  </p>
+  <div class="hero-actions">
+    <a class="btn btn-primary btn-glow" href="https://dzha0118-termprep.hf.space" target="_blank">在线体验 →</a>
+    <span class="btn btn-secondary" onclick="copyWeb(this)">本地启动</span>
+    <span class="btn btn-secondary" onclick="copyInstall(this)">pip install</span>
+    <a class="btn btn-secondary" href="https://github.com/dzha0118-ai/termprep" target="_blank">GitHub</a>
+  </div>
+  <p style="margin-top:12px;font-size:13px;color:var(--text-muted)">在线版首次加载约 30s（免费服务器冷启动）</p>
+</section>
+
+<!-- Terminal Demo -->
+<div class="terminal-wrap">
+  <div class="terminal">
+    <div class="terminal-bar">
+      <span class="terminal-dot"></span>
+      <span class="terminal-dot"></span>
+      <span class="terminal-dot"></span>
+    </div>
+    <div class="terminal-body">
+      <span class="prompt">$</span> <span class="cmd">termprep pipeline contract.txt --name "Service Agreement" --export xlsx</span><br>
+      <span class="out">Pipeline complete: Service Agreement</span><br>
+      <span class="out">Duration: 3.2s</span><br>
+      <span class="out">  Analysis: en, legal, difficulty=medium</span><br>
+      <span class="out">  Characters: 2480 | Words: 420</span><br>
+      <span class="out">  Terms extracted: 20</span><br>
+      <span class="out">  Termbase: service-agreement (20 terms added)</span><br>
+      <span class="out">  Report: service-agreement-report.md</span><br>
+      <span class="out">  Export [xlsx]: service-agreement-terms.xlsx</span><br>
+      <span class="prompt">$</span> <span class="highlight">Ready for your next project.</span><span class="terminal-cursor"></span>
+    </div>
+  </div>
+</div>
+
+<!-- Flow -->
+<section class="flow">
+  <div class="section-label">Workflow</div>
+  <h2 class="section-title">一键流水线</h2>
+  <p class="section-sub">从原文到术语准备包，六个步骤全自动完成。</p>
+  <div class="flow-grid">
+    <div class="flow-card ai-glow">
+      <div class="num">01</div>
+      <h3>文本分析</h3>
+      <p>语言检测、字数统计、领域识别（法律/医学/IT/金融等）、难度评估。</p>
+    </div>
+    <div class="flow-card ai-glow">
+      <div class="num">02</div>
+      <h3>术语提取</h3>
+      <p>jieba 分词 &bull; TF-IDF 关键词 &bull; N-gram 词组 &bull; 专有名词识别。</p>
+    </div>
+    <div class="flow-card ai-glow">
+      <div class="num">03</div>
+      <h3>关联搜索</h3>
+      <p>有道词典 &bull; Merriam-Webster &bull; Wikipedia — 翻译、释义、搭配、例句。</p>
+    </div>
+    <div class="flow-card ai-glow">
+      <div class="num">04</div>
+      <h3>术语入库</h3>
+      <p>自动建立项目术语库，支持状态跟踪、按领域筛选、多库合并。</p>
+    </div>
+    <div class="flow-card ai-glow">
+      <div class="num">05</div>
+      <h3>生成报告</h3>
+      <p>综合性的 Markdown 译前准备报告，包含分析、术语、推荐建议。</p>
+    </div>
+    <div class="flow-card ai-glow">
+      <div class="num">06</div>
+      <h3>多格式导出</h3>
+      <p>CSV &bull; XLSX (Excel) &bull; TBX (ISO 30042) &bull; JSON — 适配 CAT 工具。</p>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section>
+  <div class="section-label">Features</div>
+  <h2 class="section-title">核心功能</h2>
+  <p class="section-sub">覆盖译前准备的每一个环节。</p>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+    <div class="feature-item">
+      <span class="icon blue">&#9670;</span>
+      项目分析
+    </div>
+    <div class="feature-item">
+      <span class="icon purple">&#9670;</span>
+      术语提取
+    </div>
+    <div class="feature-item">
+      <span class="icon green">&#9670;</span>
+      在线词典
+    </div>
+    <div class="feature-item">
+      <span class="icon amber">&#9670;</span>
+      Wikipedia
+    </div>
+    <div class="feature-item">
+      <span class="icon blue">&#9670;</span>
+      术语库管理
+    </div>
+    <div class="feature-item">
+      <span class="icon purple">&#9670;</span>
+      Excel 导出
+    </div>
+    <div class="feature-item">
+      <span class="icon green">&#9670;</span>
+      TBX/CAT 集成
+    </div>
+    <div class="feature-item">
+      <span class="icon amber">&#9670;</span>
+      流水线自动化
+    </div>
+  </div>
+</section>
+
+<!-- Commands -->
+<section>
+  <div class="section-label">CLI</div>
+  <h2 class="section-title">命令速览</h2>
+  <p class="section-sub">简洁的 CLI 设计，一条命令完成一个任务。</p>
+  <div class="cmds-grid">
+    <div class="cmd-card">
+      <code>termprep pipeline &lt;file&gt;</code>
+      <div class="desc">全自动流水线</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep search &lt;term&gt;</code>
+      <div class="desc">搜索关联词汇</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep analyze &lt;file&gt;</code>
+      <div class="desc">项目分析</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep extract &lt;file&gt;</code>
+      <div class="desc">术语提取</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep report &lt;file&gt;</code>
+      <div class="desc">生成译前报告</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep db init &lt;name&gt;</code>
+      <div class="desc">创建术语库</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep db list</code>
+      <div class="desc">列出所有词库</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep export --format xlsx</code>
+      <div class="desc">导出 Excel</div>
+    </div>
+    <div class="cmd-card">
+      <code>termprep web</code>
+      <div class="desc">启动 Web 界面 (http://localhost:8672)</div>
+    </div>
+  </div>
+</section>
+
+<!-- Tech Stack -->
+<section>
+  <div class="section-label">Stack</div>
+  <h2 class="section-title">技术架构</h2>
+  <p class="section-sub">Python CLI &middot; FastAPI Web &middot; Click &middot; Rich &middot; SQLite &middot; jieba &middot; openpyxl</p>
+  <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Python 3.10+</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Click CLI</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Rich</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">SQLite</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">jieba</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">openpyxl</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Youdao API</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Wikipedia API</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">pytest</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">ruff</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">FastAPI</span>
+    <span style="background: var(--surface); border: 1px solid var(--border); border-radius: 100px; padding: 6px 16px; font-size: 13px; font-weight: 500;">Uvicorn</span>
+  </div>
+</section>
+
+<footer>
+  <p>TermPrep &middot; Built for translation learners</p>
+</footer>
+
+<script>
+function copyInstall(el) {
+  const text = "pip install termprep";
+  navigator.clipboard.writeText(text).catch(() => {});
+  el.textContent = "已复制!";
+  el.style.background = "#16a34a";
+  setTimeout(() => {
+    el.textContent = text;
+    el.style.background = "";
+  }, 1500);
+}
+function copyWeb(el) {
+  const text = "termprep web";
+  navigator.clipboard.writeText(text).catch(() => {});
+  el.textContent = "启动!";
+  el.style.background = "#7c3aed";
+  setTimeout(() => {
+    el.textContent = text;
+    el.style.background = "";
+  }, 1500);
+}
+</script>
+
+</body>
+</html>
