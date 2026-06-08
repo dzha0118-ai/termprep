@@ -541,13 +541,23 @@ async function doAnalyze() {
     document.getElementById('analyze-stats').innerHTML = Object.entries(labels).map(([k,v]) =>
       `<span class="stat-badge"><strong>${v}</strong> <span>${data[k] ?? '-'}</span></span>`
     ).join('');
-    document.getElementById('analyze-detail').textContent = data.summary || '';
+    document.getElementById('analyze-detail').textContent = formatAnalysis(data);
     result.classList.add('show');
   } catch(e) {
     toast('\u5206\u6790\u5931\u8d25: ' + e.message);
   } finally {
     spinner.classList.remove('show');
   }
+}
+
+function formatAnalysis(d) {
+  var langNames = {en:'\u82f1\u8bed', zh:'\u4e2d\u6587', ja:'\u65e5\u8bed', ko:'\u97e9\u8bed', fr:'\u6cd5\u8bed', de:'\u5fb7\u8bed', es:'\u897f\u73ed\u7259\u8bed'};
+  var diffNames = {easy:'\u7b80\u5355', medium:'\u4e2d\u7b49', hard:'\u56f0\u96be'};
+  var domainNames = {general:'\u901a\u7528', legal:'\u6cd5\u5f8b', medical:'\u533b\u5b66', finance:'\u91d1\u878d', it:'\u4fe1\u606f\u6280\u672f', academic:'\u5b66\u672f', news:'\u65b0\u95fb'};
+  var lang = langNames[d.lang] || d.lang;
+  var diff = diffNames[d.difficulty] || d.difficulty;
+  var dom = domainNames[d.domain] || d.domain;
+  return '\u8bed\u8a00\uff1a' + lang + '  |  \u9886\u57df\uff1a' + dom + '  |  \u96be\u5ea6\uff1a' + diff;
 }
 
 // ── Extract ──
@@ -581,12 +591,34 @@ async function translateTerm(idx, word) {
   var cell = document.getElementById('trans-'+idx);
   cell.innerHTML = '<span class="spinner show" style="padding:0"><div class="spinner-dot" style="width:12px;height:12px"></div></span>';
   try {
-    var data = await api('/api/search', {term: word, limit: 2});
-    var defs = data.results.filter(function(r){return r.definition && r.definition.length < 300;});
-    if (defs.length) {
-      cell.innerHTML = '<span style="color:var(--green);font-size:12px;line-height:1.5">'+esc(defs[0].definition.substring(0,120))+'</span>';
-    } else if (data.results.length) {
-      cell.innerHTML = '<span style="font-size:12px">'+esc(data.results[0].word)+'</span>';
+    var isCN = /[\u4e00-\u9fff]/.test(word);
+    var data = await api('/api/search', {term: word, limit: 5});
+
+    // Prefer dictionary results from other language, skip same-language Wikipedia
+    var best = null;
+    for (var i = 0; i < data.results.length; i++) {
+      var r = data.results[i];
+      var src = r.source || '';
+      // Skip same-language Wikipedia (eg. CN term → Wikipedia ZH article)
+      var defCN = r.definition && /[\u4e00-\u9fff]/.test(r.definition.substring(0,30));
+      if (src.startsWith('wikipedia') && isCN && defCN) continue;
+      if (src.startsWith('wikipedia') && !isCN && !defCN) continue;
+      // Dictionary/translation result found
+      if (r.definition && r.definition.length < 400) { best = r; break; }
+    }
+    // Fallback: any result with a short definition
+    if (!best) {
+      for (var j = 0; j < data.results.length; j++) {
+        if (data.results[j].definition && data.results[j].definition.length < 200) {
+          best = data.results[j]; break;
+        }
+      }
+    }
+    // Last resort: just the word
+    if (!best && data.results.length) best = data.results[0];
+
+    if (best) {
+      cell.innerHTML = '<span style="color:var(--green);font-size:12px;line-height:1.5">' + esc(best.definition ? best.definition.substring(0, 100) : best.word) + '</span>';
     } else {
       cell.innerHTML = '<span class="text-muted" style="font-size:12px">\u65e0\u7ed3\u679c</span>';
     }
@@ -597,16 +629,13 @@ async function translateTerm(idx, word) {
 
 async function translateAll() {
   var btn = document.getElementById('trans-all-btn');
-  btn.disabled = true;
-  btn.textContent = '\u7ffb\u8bd1\u4e2d...';
+  btn.disabled = true; btn.textContent = '\u7ffb\u8bd1\u4e2d...';
   for (var i = 0; i < _extractedWords.length; i++) {
     await translateTerm(i, _extractedWords[i].word);
     await new Promise(function(r){setTimeout(r, 500);});
   }
   btn.textContent = '\u2713 \u7ffb\u8bd1\u5b8c\u6210';
-  btn.style.background = 'var(--green-soft)';
-  btn.style.color = 'var(--green)';
-  btn.style.borderColor = 'transparent';
+  btn.style.background = 'var(--green-soft)'; btn.style.color = 'var(--green)'; btn.style.borderColor = 'transparent';
   setTimeout(function(){ btn.style.display='none'; }, 3000);
 }
 
