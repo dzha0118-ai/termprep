@@ -398,6 +398,17 @@ tr:hover td{background:rgba(0,0,0,.02)}
       <h4>流水线结果</h4>
       <div id="pipeline-steps"></div>
       <div id="pipeline-summary" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></div>
+      <div id="pipeline-terms" style="margin-top:16px;display:none">
+        <h4 style="margin-bottom:8px">提取术语</h4>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th></tr></thead>
+          <tbody id="pipeline-terms-table"></tbody>
+        </table></div>
+      </div>
+      <div id="pipeline-report" style="margin-top:16px;display:none">
+        <h4>译前准备报告 <button class="btn btn-sm btn-secondary" onclick="downloadReport()" style="float:right">下载报告</button></h4>
+        <pre id="pipeline-report-content" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto;margin-top:8px"></pre>
+      </div>
     </div>
   </div>
 </div>
@@ -669,6 +680,8 @@ async function doSearch() {
 }
 
 // ── Pipeline ──
+var _pipelineReport = '';
+
 async function doPipeline() {
   const text = document.getElementById('pipeline-text').value.trim();
   if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
@@ -678,6 +691,8 @@ async function doPipeline() {
   const result = document.getElementById('pipeline-result');
   spinner.classList.add('show');
   result.classList.remove('show');
+  document.getElementById('pipeline-terms').style.display = 'none';
+  document.getElementById('pipeline-report').style.display = 'none';
   try {
     const steps = [
       '\u5206\u6790\u6587\u672c\u2026', '\u63d0\u53d6\u672f\u8bed\u2026',
@@ -699,14 +714,40 @@ async function doPipeline() {
     if (data.terms_count !== undefined) lines.push(`\u63d0\u53d6\u672f\u8bed: ${data.terms_count}`);
     if (data.duration) lines.push(`\u8017\u65f6: ${data.duration}s`);
     document.getElementById('pipeline-summary').textContent = lines.join(' | ') || '\u6d41\u6c34\u7ebf\u5b8c\u6210';
+
+    // Terms table
+    if (data.terms && data.terms.length) {
+      document.getElementById('pipeline-terms-table').innerHTML = data.terms.map((t, i) =>
+        '<tr><td>'+(i+1)+'</td><td><strong>'+esc(t.word)+'</strong></td><td>'+t.freq+'</td><td>'+esc(t.type)+'</td><td class="text-mono">'+t.score+'</td></tr>'
+      ).join('');
+      document.getElementById('pipeline-terms').style.display = 'block';
+    }
+
+    // Report
+    if (data.report) {
+      _pipelineReport = data.report;
+      document.getElementById('pipeline-report-content').textContent = data.report.substring(0, 5000);
+      document.getElementById('pipeline-report').style.display = 'block';
+    }
+
     result.classList.add('show');
   } catch(e) {
     document.getElementById('pipeline-steps').innerHTML =
-      `<div style="color:var(--red);font-size:13px">\u6d41\u6c34\u7ebf\u5931\u8d25: ${esc(e.message)}</div>`;
+      '<div style="color:var(--red);font-size:13px">\u6d41\u6c34\u7ebf\u5931\u8d25: '+esc(e.message)+'</div>';
     result.classList.add('show');
   } finally {
     spinner.classList.remove('show');
   }
+}
+
+function downloadReport() {
+  if (!_pipelineReport) { toast('\u65e0\u62a5\u544a\u53ef\u4e0b\u8f7d'); return; }
+  const blob = new Blob([_pipelineReport], {type: 'text/markdown;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'termprep-report.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // ── DB list ──

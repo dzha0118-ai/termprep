@@ -169,13 +169,25 @@ def create_app() -> FastAPI:
             search_limit=data.search_limit,
             db_name=data.db_name,
         )
+        # Read report content
+        report_text = ""
+        if result.report_path and os.path.isfile(result.report_path):
+            try:
+                with open(result.report_path, encoding="utf-8") as f:
+                    report_text = f.read()
+            except Exception:
+                pass
+
         return {
             "lang": result.analysis.lang if result.analysis else "",
             "domain": result.analysis.domain if result.analysis else "",
+            "terms": [{"word": t.term, "freq": t.frequency, "type": t.word_type or "word", "score": round(t.score, 3)} for t in result.terms],
             "terms_count": len(result.terms),
             "termbase_terms": result.termbase_terms,
             "duration": round(result.duration, 1),
             "errors": result.errors,
+            "report": report_text,
+            "report_path": result.report_path or "",
         }
 
     # ── Serve frontend ──
