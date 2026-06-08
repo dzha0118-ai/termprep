@@ -593,35 +593,37 @@ async function translateTerm(idx, word) {
   try {
     var isCN = /[\u4e00-\u9fff]/.test(word);
     var data = await api('/api/search', {term: word, limit: 5});
+    var resultText = null;
 
-    // Prefer dictionary results from other language, skip same-language Wikipedia
-    var best = null;
     for (var i = 0; i < data.results.length; i++) {
       var r = data.results[i];
       var src = r.source || '';
-      // Skip same-language Wikipedia (eg. CN term → Wikipedia ZH article)
-      var defCN = r.definition && /[\u4e00-\u9fff]/.test(r.definition.substring(0,30));
-      if (src.startsWith('wikipedia') && isCN && defCN) continue;
-      if (src.startsWith('wikipedia') && !isCN && !defCN) continue;
-      // Dictionary/translation result found
-      if (r.definition && r.definition.length < 400) { best = r; break; }
-    }
-    // Fallback: any result with a short definition
-    if (!best) {
-      for (var j = 0; j < data.results.length; j++) {
-        if (data.results[j].definition && data.results[j].definition.length < 200) {
-          best = data.results[j]; break;
+      var wordCN = r.word && /[\u4e00-\u9fff]/.test(r.word);
+
+      // Skip same-language Wikipedia
+      if (src.startsWith('wikipedia') && isCN && wordCN) continue;
+      if (src.startsWith('wikipedia') && !isCN && !wordCN) continue;
+
+      // Translation source (youdao etc): prefer cross-language results
+      if (!src.startsWith('wikipedia')) {
+        if (isCN && !wordCN) { resultText = '\u2192 ' + esc(r.word); break; }
+        if (!isCN && wordCN) { resultText = '\u2192 ' + esc(r.word); break; }
+        // Same-language dictionary result - use definition
+        if (r.definition && r.definition.length > 2 && r.definition.length < 200) {
+          resultText = esc(r.definition.substring(0,100)); break;
         }
       }
     }
-    // Last resort: just the word
-    if (!best && data.results.length) best = data.results[0];
 
-    if (best) {
-      cell.innerHTML = '<span style="color:var(--green);font-size:12px;line-height:1.5">' + esc(best.definition ? best.definition.substring(0, 100) : best.word) + '</span>';
-    } else {
-      cell.innerHTML = '<span class="text-muted" style="font-size:12px">\u65e0\u7ed3\u679c</span>';
+    // Fallback: any result
+    if (!resultText && data.results.length) {
+      var fb = data.results[0];
+      resultText = esc((fb.definition||fb.word||'').substring(0,80));
     }
+
+    cell.innerHTML = resultText
+      ? '<span style="color:var(--green);font-size:12px;line-height:1.5">' + resultText + '</span>'
+      : '<span class="text-muted" style="font-size:12px">\u65e0\u7ed3\u679c</span>';
   } catch(e) {
     cell.innerHTML = '<span class="text-muted" style="font-size:12px">\u5931\u8d25</span>';
   }
