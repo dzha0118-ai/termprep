@@ -89,6 +89,7 @@ nav{
   background:var(--surface);border:1px solid var(--border);border-radius:8px;
   padding:14px 16px;font-size:13px;font-weight:500;text-align:left;
   display:flex;align-items:center;gap:10px;transition:border-color .2s;
+  cursor:pointer;text-decoration:none;
 }
 .hero-feat:hover{border-color:var(--accent)}
 .hero-feat .icon{
@@ -252,12 +253,12 @@ tr:hover td{background:rgba(0,0,0,.02)}
     <h1>Translate smarter,<br><span>not harder</span></h1>
     <p>自动分析源文本、提取术语、搜索关联词汇、构建术语库。<br>专为翻译学习者打造的完整工具链。</p>
     <div class="hero-features">
-      <div class="hero-feat"><span class="icon blue">&#9670;</span> 文本分析</div>
-      <div class="hero-feat"><span class="icon green">&#9670;</span> 术语提取</div>
-      <div class="hero-feat"><span class="icon purple">&#9670;</span> 词典搜索</div>
-      <div class="hero-feat"><span class="icon amber">&#9670;</span> 术语库管理</div>
-      <div class="hero-feat"><span class="icon blue">&#9670;</span> 一键流水线</div>
-      <div class="hero-feat"><span class="icon green">&#9670;</span> 多格式导出</div>
+      <div class="hero-feat" onclick="navigateTo('analyze')"><span class="icon blue">&#9670;</span> 文本分析</div>
+      <div class="hero-feat" onclick="navigateTo('extract')"><span class="icon green">&#9670;</span> 术语提取</div>
+      <div class="hero-feat" onclick="navigateTo('search')"><span class="icon purple">&#9670;</span> 词典搜索</div>
+      <div class="hero-feat" onclick="navigateTo('db')"><span class="icon amber">&#9670;</span> 术语库管理</div>
+      <div class="hero-feat" onclick="navigateTo('pipeline')"><span class="icon blue">&#9670;</span> 一键流水线</div>
+      <div class="hero-feat" onclick="navigateTo('extract')"><span class="icon green">&#9670;</span> 多格式导出</div>
     </div>
   </div>
 
@@ -323,8 +324,9 @@ tr:hover td{background:rgba(0,0,0,.02)}
     <div class="result-box" id="extract-result">
       <h4>提取结果</h4>
       <div class="table-wrap">
+        <button class="btn btn-sm btn-secondary" onclick="translateAll()" id="trans-all-btn" style="display:none;margin-bottom:12px">翻译全部术语</button>
         <table>
-          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th></tr></thead>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>翻译 / 释义</th></tr></thead>
           <tbody id="extract-table"></tbody>
         </table>
       </div>
@@ -473,13 +475,17 @@ tr:hover td{background:rgba(0,0,0,.02)}
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <script>
 // ── Navigation ──
+function navigateTo(page) {
+  document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+  const target = document.querySelector('.nav-link[data-page="'+page+'"]');
+  if (target) target.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  var el = document.getElementById('page-' + page);
+  if (el) el.classList.add('active');
+}
+
 document.querySelectorAll('.nav-link').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + btn.dataset.page).classList.add('active');
-  });
+  btn.addEventListener('click', () => navigateTo(btn.dataset.page));
 });
 
 // ── Toast ──
@@ -545,6 +551,8 @@ async function doAnalyze() {
 }
 
 // ── Extract ──
+var _extractedWords = [];
+
 async function doExtract() {
   const text = document.getElementById('extract-text').value.trim();
   if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
@@ -555,16 +563,51 @@ async function doExtract() {
   result.classList.remove('show');
   try {
     const data = await api('/api/extract', {text, top_n: top});
+    _extractedWords = data.terms;
     const tbody = document.getElementById('extract-table');
     tbody.innerHTML = data.terms.map((t, i) =>
-      `<tr><td>${i+1}</td><td><strong>${esc(t.word)}</strong></td><td>${t.freq}</td><td>${esc(t.type)}</td><td class="text-mono">${t.score}</td></tr>`
+      `<tr><td>${i+1}</td><td><strong>${esc(t.word)}</strong></td><td>${t.freq}</td><td>${esc(t.type)}</td><td class="text-mono">${t.score}</td><td id="trans-${i}"><button class="btn btn-sm btn-secondary" onclick="translateTerm(${i},'${esc(t.word).replace(/'/g,"\\'")}')">\u7ffb\u8bd1</button></td></tr>`
     ).join('');
+    document.getElementById('trans-all-btn').style.display = 'inline-flex';
     result.classList.add('show');
   } catch(e) {
     toast('\u63d0\u53d6\u5931\u8d25: ' + e.message);
   } finally {
     spinner.classList.remove('show');
   }
+}
+
+async function translateTerm(idx, word) {
+  var cell = document.getElementById('trans-'+idx);
+  cell.innerHTML = '<span class="spinner show" style="padding:0"><div class="spinner-dot" style="width:12px;height:12px"></div></span>';
+  try {
+    var data = await api('/api/search', {term: word, limit: 2});
+    var defs = data.results.filter(function(r){return r.definition && r.definition.length < 300;});
+    if (defs.length) {
+      cell.innerHTML = '<span style="color:var(--green);font-size:12px;line-height:1.5">'+esc(defs[0].definition.substring(0,120))+'</span>';
+    } else if (data.results.length) {
+      cell.innerHTML = '<span style="font-size:12px">'+esc(data.results[0].word)+'</span>';
+    } else {
+      cell.innerHTML = '<span class="text-muted" style="font-size:12px">\u65e0\u7ed3\u679c</span>';
+    }
+  } catch(e) {
+    cell.innerHTML = '<span class="text-muted" style="font-size:12px">\u5931\u8d25</span>';
+  }
+}
+
+async function translateAll() {
+  var btn = document.getElementById('trans-all-btn');
+  btn.disabled = true;
+  btn.textContent = '\u7ffb\u8bd1\u4e2d...';
+  for (var i = 0; i < _extractedWords.length; i++) {
+    await translateTerm(i, _extractedWords[i].word);
+    await new Promise(function(r){setTimeout(r, 500);});
+  }
+  btn.textContent = '\u2713 \u7ffb\u8bd1\u5b8c\u6210';
+  btn.style.background = 'var(--green-soft)';
+  btn.style.color = 'var(--green)';
+  btn.style.borderColor = 'transparent';
+  setTimeout(function(){ btn.style.display='none'; }, 3000);
 }
 
 // ── Search ──
