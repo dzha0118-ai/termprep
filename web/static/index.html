@@ -1,0 +1,2611 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TermPrep — 译前术语准备平台</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Outfit:wght@400..700&family=DM+Serif+Display:ital@0;1&family=Noto+Sans+SC:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  /* Colors — purple + cyan accent */
+  --bg:#fafafa; --surface:#fff; --border:#e5e5e5; --border-hover:#d4d4d4;
+  --text:#171717; --text-muted:#737373; --text-dim:#a3a3a3;
+  --accent:#7c3aed; --accent-hover:#6d28d9; --accent-soft:rgba(124,58,237,.08);
+  --accent-glow:rgba(124,58,237,0.12); --accent-cyan:#0ea5e9;
+  --green:#059669; --green-soft:rgba(5,150,105,.08);
+  --red:#dc2626; --red-soft:rgba(220,38,38,.08); --amber:#d97706; --amber-soft:rgba(217,119,6,.08);
+  --bg-home-r1:rgba(124,58,237,0.03); --bg-home-r2:rgba(14,165,233,0.02);
+  /* Dark overrides */
+  --dark-bg:#0b0c0f; --dark-surface:#13141a; --dark-border:#272935; --dark-border-hover:#35384a;
+  --dark-text:#f0f0f5; --dark-text-muted:#9ca3af; --dark-text-dim:#6b7280;
+  --dark-accent:#a78bfa; --dark-accent-hover:#c4b5fd; --dark-accent-soft:rgba(167,139,250,.12);
+  --dark-accent-glow:rgba(167,139,250,.20); --dark-accent-cyan:#38bdf8;
+  --dark-green:#34d399; --dark-green-soft:rgba(52,211,153,.12);
+  --dark-red:#f87171; --dark-red-soft:rgba(248,113,113,.12); --dark-amber:#fbbf24; --dark-amber-soft:rgba(251,191,36,.12);
+  --dark-bg-home-r1:rgba(124,58,237,0.10); --dark-bg-home-r2:rgba(14,165,233,0.08);
+  /* Typography scale */
+  --fs-h2:24px; --fs-h3:18px; --fs-h4:15px; --fs-body:15px;
+  --fs-label:13px; --fs-caption:12px; --fs-table:13px;
+  --fw-bold:700; --fw-semibold:600; --fw-medium:500; --fw-normal:400;
+  /* Spacing */
+  --space-xs:4px; --space-sm:8px; --space-md:12px; --space-lg:16px;
+  --space-xl:24px; --space-2xl:32px; --page-w:960px;
+  /* Radii & shadows */
+  --radius:10px; --radius-lg:14px;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 1px 4px rgba(0,0,0,.04);
+  --shadow-md:0 4px 12px rgba(0,0,0,.05),0 1px 3px rgba(0,0,0,.04);
+  --shadow-lg:0 8px 24px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04);
+  --glass-bg:rgba(255,255,255,.75); --glass-border:rgba(229,229,229,.5);
+  --glass-hover:rgba(255,255,255,.92);
+  --font:Inter,Noto Sans SC,-apple-system,system-ui,sans-serif;
+  --font-display:DM Serif Display,Georgia,Noto Serif SC,serif;
+  --font-ui:Outfit,Inter,Noto Sans SC,sans-serif;
+  --mono:JetBrains Mono,SF Mono,Cascadia Code,monospace;
+  --nav-h:56px;
+}
+body{
+  font-family:var(--font); color:var(--text); font-size:var(--fs-body);
+  line-height:1.65; -webkit-font-smoothing:antialiased; padding-top:var(--nav-h);
+  background:
+    radial-gradient(ellipse at 20% 0%, var(--bg-home-r1) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, var(--bg-home-r2) 0%, transparent 50%),
+    var(--bg);
+  background-attachment:fixed;
+  transition:background-color .35s ease,color .35s ease;
+}
+a{color:var(--accent-cyan);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── Dark mode via class on html ── */
+html.dark,
+html.dark body{
+  --bg:var(--dark-bg); --surface:var(--dark-surface); --border:var(--dark-border); --border-hover:var(--dark-border-hover);
+  --text:var(--dark-text); --text-muted:var(--dark-text-muted); --text-dim:var(--dark-text-dim);
+  --accent:var(--dark-accent); --accent-hover:var(--dark-accent-hover); --accent-soft:var(--dark-accent-soft);
+  --accent-glow:var(--dark-accent-glow); --accent-cyan:var(--dark-accent-cyan);
+  --green:var(--dark-green); --green-soft:var(--dark-green-soft);
+  --red:var(--dark-red); --red-soft:var(--dark-red-soft); --amber:var(--dark-amber); --amber-soft:var(--dark-amber-soft);
+  --bg-home-r1:var(--dark-bg-home-r1); --bg-home-r2:var(--dark-bg-home-r2);
+  color-scheme:dark;
+}
+html.dark nav{background:rgba(19,20,26,.82);border-bottom-color:var(--dark-border)}
+html.dark .nav-hamburger:hover{background:rgba(255,255,255,.08)}
+html.dark .nav-links{background:rgba(19,20,26,.95)}
+html.dark .card,
+html.dark .rel-card{background:var(--dark-surface)}
+html.dark .trans-seg,
+html.dark .stat-badge{background:var(--dark-surface);border-color:var(--dark-border)}
+html.dark .form-group input,
+html.dark .form-group select,
+html.dark .form-group textarea,
+html.dark textarea,
+html.dark input[type="text"],
+html.dark input[type="number"],
+html.dark select{background:var(--dark-surface);color:var(--dark-text);border-color:var(--dark-border)}
+html.dark .upload-zone:hover,
+html.dark .upload-zone.drag{background:rgba(167,139,250,.12)}
+html.dark .result-box{background:var(--dark-surface)}
+html.dark #pipeline-report-content{background:var(--dark-surface);border-color:var(--dark-border);color:var(--dark-text)}
+html.dark .json-block{background:#0f111a;color:#e2e8f0}
+html.dark .toggle-slider{background:#475569}
+html.dark body{
+  background:
+    radial-gradient(ellipse at 20% 0%, var(--bg-home-r1) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 100%, var(--bg-home-r2) 0%, transparent 50%),
+    var(--bg);
+}
+
+/* ── Dark mode toggle button ── */
+.theme-toggle{
+  width:34px;height:34px;border-radius:8px;border:none;background:transparent;
+  display:inline-flex;align-items:center;justify-content:center;cursor:pointer;
+  color:var(--text-muted);font-size:16px;transition:background .15s,color .15s;margin-left:4px;
+}
+.theme-toggle:hover{background:rgba(0,0,0,.06);color:var(--text)}
+html.dark .theme-toggle:hover{background:rgba(255,255,255,.08);color:var(--text)}
+
+/* ── Nav ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;height:var(--nav-h);
+  background:rgba(250,250,250,.75);backdrop-filter:blur(20px) saturate(1.2);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 20px;gap:var(--space-sm);
+}
+
+/* ── Page container ── */
+.page{position:relative;z-index:1;min-height:var(--nav-h)}
+/* ── Brand / Logo ── */
+.nav-brand{
+  display:flex;align-items:center;gap:10px;margin-right:var(--space-lg);
+  flex-shrink:0;
+}
+.nav-logo-icon{
+  width:28px;height:28px;flex-shrink:0;
+}
+.nav-logo-icon svg{
+  width:100%;height:100%;display:block;
+}
+.nav-logo-text{
+  font-family:var(--font-ui);font-weight:var(--fw-bold);font-size:17px;
+  letter-spacing:-.3px;color:var(--text);white-space:nowrap;
+}
+
+/* ── AI Badge (separate from logo) ── */
+.nav-ai-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:11px;font-weight:600;
+  padding:4px 10px;border-radius:100px;white-space:nowrap;
+  transition:all .2s ease;flex-shrink:0;margin-left:8px;
+  background:var(--green-soft);color:var(--green);border:1px solid rgba(5,150,105,.15);
+}
+.nav-ai-badge .ai-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--green);
+  animation:pulse-dot 1.8s infinite;
+}
+.nav-ai-badge.off{
+  background:var(--bg);color:var(--text-dim);border-color:var(--border);
+}
+.nav-ai-badge.off .ai-dot{
+  background:var(--text-dim);animation:none;
+}
+@keyframes pulse-dot{
+  0%{opacity:1;transform:scale(1)}
+  50%{opacity:.5;transform:scale(.85)}
+  100%{opacity:1;transform:scale(1)}
+}
+.nav-link{
+  padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;
+  color:var(--text-muted);cursor:pointer;transition:all .15s;
+  border:none;background:none;font-family:var(--font);
+  white-space:nowrap;
+}
+.nav-link:hover{color:var(--text);background:rgba(0,0,0,.04);}
+.nav-link.active{color:var(--accent);background:var(--accent-soft);position:relative}
+.nav-link.active::after{content:'';position:absolute;bottom:0;left:14px;right:14px;height:2px;background:var(--accent);border-radius:1px;transition:transform .2s;transform:scaleX(1)}
+.nav-link:not(.active):hover::after{transform:scaleX(0)}
+.nav-github{
+  margin-left:auto;font-size:13px;color:var(--text-muted);
+  display:flex;align-items:center;gap:6px;
+}
+.nav-github:hover{color:var(--text);text-decoration:none;}
+
+/* ── Nav links wrapper & mobile hamburger ── */
+.nav-links{display:flex;align-items:center;gap:var(--space-sm);margin-left:auto;transition:opacity .25s ease,transform .25s ease}
+.nav-links .nav-github{margin-left:0}
+.nav-hamburger{display:none;flex-direction:column;justify-content:center;width:36px;height:36px;border:none;background:transparent;cursor:pointer;gap:5px;padding:6px;border-radius:6px;margin-left:auto}
+.nav-hamburger span{display:block;width:20px;height:2px;background:var(--text-muted);border-radius:1px;transition:transform .25s ease,opacity .25s ease}
+.nav-hamburger:hover{background:rgba(0,0,0,.04)}
+nav.open .nav-hamburger span:nth-child(1){transform:translateY(7px) rotate(45deg)}
+nav.open .nav-hamburger span:nth-child(2){opacity:0}
+nav.open .nav-hamburger span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+
+/* ── Cursor drag glow ── */
+#cursor-glow{position:fixed;width:280px;height:280px;border-radius:50%;pointer-events:none;z-index:0;opacity:0;transform:translate(-50%,-50%) scale(1);transition:opacity .35s ease,transform .25s ease;background:radial-gradient(circle,rgba(168,85,247,.28) 0%,rgba(99,102,241,.14) 35%,rgba(14,165,233,.06) 60%,transparent 75%);filter:blur(12px);mix-blend-mode:screen}
+#cursor-glow.dragging{opacity:1;transform:translate(-50%,-50%) scale(1.55)}
+
+@media(max-width:768px){
+  .nav-links{position:absolute;top:var(--nav-h);left:0;right:0;flex-direction:column;align-items:stretch;background:rgba(250,250,250,.92);backdrop-filter:blur(20px) saturate(1.2);border-bottom:1px solid var(--border);padding:8px 16px 16px;gap:4px;box-shadow:var(--shadow-md);opacity:0;transform:translateY(-8px);pointer-events:none;margin-left:0}
+  nav.open .nav-links{opacity:1;transform:translateY(0);pointer-events:auto}
+  .nav-hamburger{display:flex}
+  .nav-link{width:100%;text-align:left;padding:10px 14px;border-radius:8px}
+  .nav-link.active::after{display:none}
+  .nav-github{margin-left:0;padding:10px 14px;border-radius:8px;color:var(--text-muted)}
+  #cursor-glow{width:180px;height:180px}
+  .theme-toggle{order:-1;margin-left:auto;margin-right:2px}
+  .nav-ai-badge{display:none}
+  html.dark .nav-links{background:rgba(19,20,26,.95)}
+}
+
+/* ── Page container ── */
+.page{display:none;max-width:var(--page-w);margin:0 auto;padding:var(--space-2xl) 20px 60px}
+.page.active{display:block}
+
+/* ── Hero page ── */
+.hero{text-align:center;padding:56px 0 var(--space-xl)}
+.hero-badge{
+  display:inline-block;font-size:11px;font-weight:600;letter-spacing:.5px;
+  text-transform:uppercase;color:var(--accent);background:var(--accent-soft);
+  padding:4px 14px;border-radius:100px;margin-bottom:20px;
+}
+.hero h1{
+  font-size:clamp(36px,5vw,56px);font-weight:400;letter-spacing:-.8px;
+  line-height:1.15;margin-bottom:14px;font-family:var(--font-display);
+}
+.hero h1 span{
+  background:linear-gradient(135deg,var(--accent),#a78bfa,#0ea5e9,var(--accent));
+  background-size:300% 300%;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  animation:shimmer 4s ease infinite;
+}
+@keyframes shimmer{
+  0%,100%{background-position:0% 50%}
+  50%{background-position:100% 50%}
+}
+.hero p{font-size:16px;color:var(--text-muted);max-width:480px;margin:0 auto 28px;line-height:1.7}
+.hero-features{
+  display:flex;flex-wrap:wrap;justify-content:center;align-items:center;
+  gap:var(--space-sm);max-width:var(--page-w);margin:0 auto;
+}
+.hero-feat{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:10px 20px;border-radius:100px;
+  background:var(--glass-bg);backdrop-filter:blur(8px);
+  border:1px solid var(--glass-border);
+  font-family:var(--font-ui);font-size:13px;font-weight:var(--fw-bold);
+  color:var(--text);cursor:pointer;text-decoration:none;
+  transition:all .25s ease;position:relative;
+  overflow:visible;
+}
+.hero-feat:hover{transform:translateY(-2px);box-shadow:0 4px 16px var(--accent-glow)}
+.hero-feat:active{transform:translateY(0)}
+.hero-feat .icon{
+  width:22px;height:22px;border-radius:5px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;font-size:11px;
+}
+.hero-feat .icon.blue{background:var(--accent-soft);color:var(--accent)}
+.hero-feat .icon.green{background:var(--green-soft);color:var(--green)}
+.hero-feat .icon.amber{background:var(--amber-soft);color:var(--amber)}
+.hero-feat .icon.purple{background:rgba(124,58,237,.12);color:#7c3aed}
+.hero-feat .icon.cyan{background:rgba(14,165,233,.12);color:#0ea5e9}
+
+/* ── Section headers ── */
+.page-header{margin-bottom:var(--space-xl)}
+.page-header .label{
+  font-size:var(--fs-caption);font-weight:var(--fw-semibold);letter-spacing:.8px;
+  text-transform:uppercase;color:var(--accent);margin-bottom:var(--space-xs);
+}
+.page-header h2{font-size:var(--fs-h2);font-weight:var(--fw-bold);letter-spacing:-.5px;font-family:var(--font-display)}
+.page-header p{font-size:var(--fs-body);color:var(--text-muted);margin-top:var(--space-xs)}
+
+/* ── Cards ── */
+.card{
+  background:var(--glass-bg);backdrop-filter:blur(10px);
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  padding:var(--space-xl);margin-bottom:var(--space-lg);box-shadow:var(--shadow);
+  transition:box-shadow .2s;
+}
+.card:hover{box-shadow:var(--shadow-md)}
+.card-title{font-size:var(--fs-h4);font-weight:var(--fw-semibold);margin-bottom:var(--space-md)}
+
+/* ── Forms ── */
+.form-group{margin-bottom:var(--space-md)}
+.form-group label{
+  display:block;font-size:var(--fs-label);font-weight:var(--fw-medium);
+  margin-bottom:var(--space-xs);color:var(--text);
+}
+textarea,input[type="text"],input[type="number"],select{
+  width:100%;padding:10px var(--space-md);border:1px solid var(--border);
+  border-radius:8px;font-size:var(--fs-body);font-family:var(--font);
+  background:var(--surface);color:var(--text);transition:border-color .2s,box-shadow .2s;
+  outline:none;
+}
+textarea:focus,input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+textarea{min-height:120px;resize:vertical;line-height:1.65}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-md)}
+@media(max-width:500px){.form-row{grid-template-columns:1fr}}
+
+/* ── Buttons ── */
+.btn{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:10px 22px;border-radius:8px;font-size:var(--fs-body);font-weight:var(--fw-semibold);
+  font-family:var(--font);cursor:pointer;transition:all .15s ease;
+  border:none;position:relative;
+}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),#6366f1);color:#fff}
+.btn-primary:hover{background:linear-gradient(135deg,var(--accent-hover),#4f46e5);box-shadow:0 2px 10px var(--accent-glow);transform:translateY(-1px)}
+.btn-primary:active{transform:translateY(0) scale(.97)}
+.btn-secondary{background:var(--bg);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--border-hover);background:var(--surface)}
+.btn-sm{padding:var(--space-sm) var(--space-md);font-size:var(--fs-label)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
+
+/* ── Results ── */
+.result-box{
+  display:none;margin-top:var(--space-lg);
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  padding:var(--space-lg) 20px;
+}
+.result-box.show{display:block}
+.result-box h4{font-size:var(--fs-label);font-weight:var(--fw-semibold);margin-bottom:var(--space-sm);color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px}
+.result-box .stat-row{display:flex;flex-wrap:wrap;gap:var(--space-sm);margin:var(--space-sm) 0}
+.stat-badge{
+  background:var(--surface);border:1px solid var(--border);border-radius:6px;
+  padding:6px 14px;font-size:var(--fs-label);
+}
+.stat-badge strong{color:var(--text-muted);font-weight:var(--fw-medium)}
+.stat-badge span{font-weight:var(--fw-semibold);color:var(--text)}
+
+/* ── Table ── */
+.table-wrap{overflow-x:auto;margin-top:var(--space-sm)}
+table{width:100%;border-collapse:collapse;font-size:var(--fs-table)}
+th{text-align:left;padding:10px var(--space-md);font-weight:var(--fw-semibold);color:var(--text-muted);font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+td{padding:10px var(--space-md);border-bottom:1px solid var(--border);transition:background .15s}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:rgba(124,58,237,.04)}
+.text-mono{font-family:var(--mono);font-size:12px}
+.text-green{color:var(--green)}
+.text-red{color:var(--red)}
+.text-muted{color:var(--text-muted)}
+
+/* ── Loading spinner ── */
+.spinner{display:none;align-items:center;gap:8px;padding:10px 0;font-size:13px;color:var(--text-muted)}
+.spinner.show{display:flex}
+.spinner-dot{
+  width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);
+  border-radius:50%;animation:spin .6s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Toast ── */
+.toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);z-index:200;
+  background:#1a1d23;color:#fff;padding:10px 20px;border-radius:8px;
+  font-size:var(--fs-label);font-weight:var(--fw-medium);box-shadow:var(--shadow-lg);
+  opacity:0;transition:opacity .25s,transform .35s cubic-bezier(.34,1.56,.64,1);
+  pointer-events:none;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── Upload zone ── */
+.upload-zone{
+  border:2px dashed var(--border);border-radius:var(--radius-lg);
+  padding:var(--space-2xl);text-align:center;cursor:pointer;transition:all .2s;
+  color:var(--text-muted);font-size:var(--fs-body);
+}
+.upload-zone:hover{border-color:var(--accent);border-style:solid;background:var(--accent-soft)}
+.upload-zone.drag{border-color:var(--accent);background:var(--accent-soft)}
+
+/* ── Source status ── */
+.source-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.source-tag{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:5px 12px;border-radius:100px;font-size:12px;font-weight:500;
+  border:1px solid var(--border);
+}
+.source-tag.ok{border-color:#bbf7d0;background:var(--green-soft);color:var(--green)}
+.source-tag.no{border-color:#fecaca;background:var(--red-soft);color:var(--red)}
+
+.source-tag.no{border-color:#fecaca;background:var(--red-soft);color:var(--red)}
+
+/* ── Settings panel (AI config) ── */
+.settings-toggle{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:12px 16px;background:var(--bg);border-radius:var(--radius);margin:-12px -12px 12px -12px;font-weight:500;transition:background .15s}
+.settings-toggle:hover{background:rgba(0,0,0,.04)}
+.settings-panel{display:none;padding:4px}
+.settings-panel.open{display:block}
+html.dark .settings-toggle{background:rgba(255,255,255,.04)}
+html.dark .settings-toggle:hover{background:rgba(255,255,255,.08)}
+.hint{font-size:11px;color:var(--text-dim);margin-top:4px}
+
+/* ── Toggle switch ── */
+.toggle-switch{position:relative;width:44px;height:24px;display:inline-block}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:var(--border-hover);border-radius:24px;transition:.3s}
+.toggle-slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.3s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.toggle-switch input:checked + .toggle-slider{background:var(--accent)}
+.toggle-switch input:checked + .toggle-slider:before{transform:translateX(20px)}
+.toggle-label{font-size:13px;color:var(--text-muted);user-select:none}
+
+/* ── Pipeline steps ── */
+.pstep{display:flex;align-items:center;gap:12px;padding:8px 0;font-size:13px;color:var(--text-muted);border-bottom:1px solid var(--border)}
+.pstep:last-child{border-bottom:none}
+.pstep .num{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.pstep.done .num{background:var(--green-soft);color:var(--green)}
+.pstep.done{color:var(--text)}
+.pstep.pending .num{background:var(--bg);color:var(--text-dim);border:1px solid var(--border)}
+
+/* ── Progress bar (long running steps) ── */
+.progress-wrap{display:none;margin:12px 0}
+.progress-wrap.show{display:block}
+.progress-track{height:6px;background:var(--bg);border-radius:100px;overflow:hidden;border:1px solid var(--border)}
+.progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-cyan));border-radius:100px;transition:width .4s cubic-bezier(.4,0,.2,1)}
+.progress-label{display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-top:6px}
+
+/* ── Responsive ── */
+@media(max-width:640px){
+  .page{padding:20px 12px 40px}
+  .card{padding:16px}
+  .hero-feat{padding:8px 14px;font-size:12px}
+  .nav-link{padding:6px 10px;font-size:12px}
+}
+
+/* ── Empty state ── */
+.empty-state{text-align:center;padding:40px 0;color:var(--text-muted);font-size:14px}
+.empty-state .big{font-size:36px;margin-bottom:8px}
+
+/* ── Apple Intelligence Glow ── */
+@property --ai-angle{
+  syntax:'<angle>';initial-value:0deg;inherits:false;
+}
+@keyframes ai-spin{to{--ai-angle:360deg}}
+.ai-glow{
+  position:relative;
+}
+.ai-glow::before,.ai-glow::after{
+  content:'';position:absolute;inset:-2px;border-radius:999px;z-index:-1;
+  opacity:0;transition:opacity .4s ease;
+  background:conic-gradient(from var(--ai-angle,0deg),
+    #BC82F3,#F5B9EA,#8D9FFF,#6E56CF,#FF6778,#FFBA71,#C686FF,#BC82F3);
+  animation:ai-spin 4s linear infinite paused;
+}
+.ai-glow:hover::before,.ai-glow:hover::after{opacity:.45;animation-play-state:running}
+.ai-glow::before{filter:blur(14px)}
+.ai-glow::after{filter:blur(4px);opacity:0}
+.ai-glow:hover::after{opacity:.2}
+
+/* ── button glow ── */
+.ai-btn{
+  position:relative;overflow:hidden;
+  border:none;color:#fff;font-weight:600;
+  background:linear-gradient(135deg,#6366f1,#8b5cf6);
+  background-size:200% 200%;
+  transition:transform .15s,box-shadow .15s,background-position .4s;
+  box-shadow:0 1px 8px rgba(99,102,241,.2);
+}
+.ai-btn:hover{
+  transform:translateY(-1px);
+  background:linear-gradient(135deg,#8b5cf6,#a855f7,#ec4899);
+  box-shadow:0 4px 24px rgba(139,92,246,.45);
+}
+
+/* ── result card glow ── */
+.ai-result{
+  position:relative;border:1px solid transparent;
+  background:var(--surface);
+  border-radius:var(--radius-lg);
+}
+.ai-result::before{
+  content:'';position:absolute;inset:-1px;z-index:-1;border-radius:inherit;
+  background:conic-gradient(from var(--ai-angle),#818cf8,#c084fc,#e879f9,#818cf8);
+  animation:ai-spin 6s linear infinite;
+  opacity:.35;
+}
+
+@media(prefers-reduced-motion:reduce){
+  .ai-glow::before,.ai-glow::after,.ai-result::before{animation:none}
+  .ai-btn{animation:none}
+  *{animation-duration:0s!important;transition-duration:0s!important}
+}
+
+/* ── Page & Content Animations ── */
+@keyframes fadeSlideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeSlideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tableRowIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+@keyframes pageFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px var(--accent-glow)}50%{box-shadow:0 0 0 8px rgba(124,58,237,0.03)}}
+@keyframes breathe{0%,100%{opacity:.5}50%{opacity:.85}}
+
+/* ── Card hover lift ── */
+.card{transition:transform .2s ease,box-shadow .2s ease}
+.card:hover{transform:translateY(-1px);box-shadow:var(--shadow-md)}
+
+/* ── Translation result entry ── */
+.trans-result-enter{animation:fadeSlideUp .45s ease forwards}
+.trans-col:nth-child(1){animation:fadeSlideUp .4s .05s ease both}
+.trans-col:nth-child(2){animation:fadeSlideUp .4s .2s ease both}
+
+/* ── Table row stagger ── */
+.table-row-in{opacity:0;animation:tableRowIn .35s ease forwards}
+.table-row-in:nth-child(1){animation-delay:0s}.table-row-in:nth-child(2){animation-delay:.05s}
+.table-row-in:nth-child(3){animation-delay:.1s}.table-row-in:nth-child(4){animation-delay:.15s}
+.table-row-in:nth-child(5){animation-delay:.2s}.table-row-in:nth-child(6){animation-delay:.25s}
+.table-row-in:nth-child(7){animation-delay:.3s}.table-row-in:nth-child(8){animation-delay:.35s}
+.table-row-in:nth-child(9){animation-delay:.4s}.table-row-in:nth-child(10){animation-delay:.45s}
+
+/* ── Upload zone elastic ── */
+.upload-zone{transition:transform .25s cubic-bezier(.34,1.56,.64,1),border-color .2s,background .2s}
+.upload-zone.drag{transform:scale(1.02);border-color:var(--accent);background:var(--accent-soft)}
+
+/* ── Search input pulse ── */
+textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
+  animation:pulse 2s ease infinite;
+}
+
+/* ── Nav indicator slide ── */
+.nav-link.active::after{transition:transform .3s cubic-bezier(.4,0,.2,1)}
+
+/* ── Mobile: auto-animate spotlight & watermark for touch devices ── */
+@media(hover:none) and (pointer:coarse){
+  #spotlight-overlay{
+    opacity:.7;
+    background:radial-gradient(600px at 50% 50%,rgba(124,58,237,.3) 0%,rgba(14,165,233,.15) 30%,rgba(124,58,237,.08) 55%,transparent 80%);
+  }
+  #watermark-grid span{color:rgba(139,92,246,.3)!important}
+  .hero-feat.ai-glow::before,.hero-feat.ai-glow::after{
+    opacity:.2!important;
+    animation:ai-spin 8s linear infinite!important;
+  }
+  nav{overflow:visible}
+  #cursor-glow{display:none}
+}
+
+/* ════════════════════════════════════════════════════════════════
+   COSMIC PLANET — 全屏悬浮星球背景（升级为“星球宠物”）
+   ════════════════════════════════════════════════════════════════ */
+#space-pet-canvas{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  width:100vw;height:100vh;opacity:1;
+}
+#cosmic-planet{
+  position:fixed;left:50%;top:42%;z-index:0;
+  width:min(58vw,720px);height:min(58vw,720px);
+  transform:translate(-50%,-50%);
+  pointer-events:auto;user-select:none;
+  will-change:transform;
+  opacity:.55;
+  transition:opacity .5s ease;
+}
+#cosmic-planet:hover{opacity:.72}
+#cosmic-planet.thinking{opacity:.85;filter:drop-shadow(0 0 40px rgba(14,165,233,.5))}
+#cosmic-planet.thinking .planet-core{box-shadow:0 0 100px rgba(14,165,233,.45),0 0 200px rgba(14,165,233,.25)}
+.planet-core.planet-pulse{animation:corePulse .55s ease}
+@keyframes corePulse{
+  0%{transform:translate(-50%,-50%) scale(1)}
+  40%{transform:translate(-50%,-50%) scale(1.06)}
+  70%{transform:translate(-50%,-50%) scale(.98)}
+  100%{transform:translate(-50%,-50%) scale(1)}
+}
+.planet-core{
+  position:absolute;left:50%;top:50%;width:46%;height:46%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:
+    /* surface texture bands */
+    radial-gradient(ellipse 80% 30% at 50% 35%, rgba(99,102,241,.35) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 25% at 35% 70%, rgba(124,58,237,.45) 0%, transparent 50%),
+    radial-gradient(ellipse 60% 20% at 72% 62%, rgba(168,85,247,.3) 0%, transparent 50%),
+    radial-gradient(circle at 32% 28%, rgba(255,255,255,.45) 0%, transparent 26%),
+    radial-gradient(circle at 50% 50%, rgba(124,58,237,.8) 0%, rgba(76,29,149,.92) 45%, rgba(30,10,80,.98) 100%);
+  box-shadow:
+    inset -40px -40px 100px rgba(0,0,0,.6),
+    inset 24px 24px 70px rgba(255,255,255,.14),
+    0 0 80px rgba(124,58,237,.45),
+    0 0 160px rgba(124,58,237,.28),
+    0 0 280px rgba(99,102,241,.14);
+  animation:planetBreath 8s ease-in-out infinite;
+}
+.planet-core::before{
+  content:'';position:absolute;inset:-6%;border-radius:50%;
+  background:conic-gradient(from 0deg at 50% 50%,
+    rgba(124,58,237,.15) 0deg,
+    rgba(99,102,241,.22) 70deg,
+    rgba(168,85,247,.12) 140deg,
+    rgba(124,58,237,.18) 210deg,
+    rgba(139,92,246,.1) 280deg,
+    rgba(124,58,237,.15) 360deg);
+  filter:blur(10px);
+  opacity:.7;
+  animation:planetRotate 24s linear infinite;
+}
+@keyframes planetRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.planet-core::after{
+  content:'';position:absolute;inset:-22%;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, rgba(139,92,246,.22) 0%, rgba(99,102,241,.1) 35%, transparent 65%);
+  filter:blur(36px);animation:planetHalo 6s ease-in-out infinite;
+}
+.planet-atmo{
+  position:absolute;left:50%;top:50%;width:72%;height:72%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(168,85,247,.14) 0%, transparent 50%),
+    radial-gradient(circle at 55% 45%, rgba(99,102,241,.1) 0%, transparent 40%);
+  filter:blur(22px);
+  animation:planetBreath 8s ease-in-out infinite reverse;
+}
+.planet-atmo::after{
+  content:'';position:absolute;inset:-8%;border-radius:50%;
+  border:1px solid rgba(255,255,255,.06);
+  filter:blur(2px);
+}
+.planet-ring{
+  position:absolute;left:50%;top:50%;border-radius:50%;
+  border:1.5px solid rgba(255,255,255,.18);
+  transform:translate(-50%,-50%) rotateX(72deg);
+  box-shadow:
+    0 0 0 1px rgba(139,92,246,.05),
+    0 0 30px rgba(139,92,246,.22),
+    inset 0 0 30px rgba(139,92,246,.14);
+  transform-style:preserve-3d;
+}
+.planet-ring.r1{width:92%;height:92%;animation:ringSpin1 28s linear infinite;}
+.planet-ring.r2{width:122%;height:122%;border-color:rgba(14,165,233,.22);animation:ringSpin2 42s linear infinite;}
+.planet-ring.r3{width:154%;height:154%;border-color:rgba(236,72,153,.18);animation:ringSpin3 66s linear infinite;}
+.planet-ring::before{
+  content:'';position:absolute;left:50%;top:-4px;width:10px;height:10px;border-radius:50%;
+  transform:translateX(-50%);background:#fff;box-shadow:0 0 18px rgba(255,255,255,.95),0 0 6px rgba(139,92,246,.8);
+}
+.planet-ring.r2::before{width:12px;height:12px;background:#7dd3fc;box-shadow:0 0 22px rgba(125,211,252,.95),0 0 8px rgba(14,165,233,.6)}
+.planet-ring.r3::before{width:9px;height:9px;background:#f9a8d4;box-shadow:0 0 20px rgba(249,168,212,.95),0 0 7px rgba(236,72,153,.6)}
+@keyframes planetBreath{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.03)}}
+@keyframes planetHalo{0%,100%{opacity:.6;transform:scale(1)}50%{opacity:1;transform:scale(1.12)}}
+@keyframes ringSpin1{from{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(0deg)}to{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(360deg)}}
+@keyframes ringSpin2{from{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(120deg)}to{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(-240deg)}}
+@keyframes ringSpin3{from{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(240deg)}to{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(600deg)}}
+
+/* 星球宠物五官 */
+.planet-face{
+  position:absolute;left:50%;top:50%;width:46%;height:46%;
+  transform:translate(-50%,-50%);
+  pointer-events:none;z-index:2;
+}
+.planet-eye{
+  position:absolute;top:40%;width:8%;height:8%;
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .15s ease;
+}
+.planet-eye.l{left:26%}
+.planet-eye.r{right:26%}
+.planet-eye::after{
+  content:'';width:100%;height:100%;border-radius:50%;background:#fff;
+  box-shadow:0 0 12px rgba(255,255,255,.9),0 0 24px rgba(255,255,255,.5),inset -2px -2px 4px rgba(0,0,0,.15);
+  animation:planetBlink 5s ease-in-out infinite;
+}
+.planet-eye::before{
+  content:'';position:absolute;top:18%;right:18%;width:28%;height:28%;border-radius:50%;background:rgba(255,255,255,.95);
+  box-shadow:0 0 4px rgba(255,255,255,.9);
+  z-index:1;
+}
+@keyframes planetBlink{0%,48%,52%,100%{transform:scaleY(1)}50%{transform:scaleY(.08)}}
+.planet-mouth{
+  position:absolute;left:50%;top:54%;width:12%;height:7%;
+  transform:translateX(-50%);
+  border-bottom:2.5px solid rgba(255,255,255,.85);
+  border-radius:0 0 50% 50%;
+  opacity:.85;
+  box-shadow:0 2px 8px rgba(255,255,255,.25);
+}
+.planet-cheek{
+  position:absolute;top:50%;width:6%;height:3%;
+  border-radius:50%;background:rgba(249,168,212,.35);
+  filter:blur(3px);
+}
+.planet-cheek.l{left:20%}
+.planet-cheek.r{right:20%}
+
+/* 星环上的环绕星星 */
+.ring-star-track{
+  position:absolute;left:50%;top:50%;
+  border-radius:50%;pointer-events:none;
+  transform:translate(-50%,-50%) rotateX(72deg);
+}
+.ring-star-track.t1{width:92%;height:92%;animation:starOrbit1 22s linear infinite}
+.ring-star-track.t2{width:122%;height:122%;animation:starOrbit2 34s linear infinite}
+.ring-star-track.t3{width:154%;height:154%;animation:starOrbit3 48s linear infinite}
+@keyframes starOrbit1{from{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(0deg)}to{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(360deg)}}
+@keyframes starOrbit2{from{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(360deg)}to{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(0deg)}}
+@keyframes starOrbit3{from{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(0deg)}to{transform:translate(-50%,-50%) rotateX(72deg) rotateZ(-360deg)}}
+.ring-star{
+  position:absolute;
+  left:calc(50% + 50% * sin(var(--angle)));
+  top:calc(50% - 50% * cos(var(--angle)));
+  width:6px;height:6px;border-radius:50%;
+  transform:translate(-50%,-50%);
+  background:#fff;
+  box-shadow:0 0 10px #fff,0 0 22px currentColor;
+}
+.ring-star::after{
+  content:'';position:absolute;inset:-4px;border-radius:50%;
+  background:radial-gradient(circle at 50% 50%,currentColor,transparent 70%);
+  opacity:.35;filter:blur(2px);
+}
+.ring-star-track.t1 .ring-star{color:#c4b5fd}
+.ring-star-track.t2 .ring-star{color:#7dd3fc}
+.ring-star-track.t3 .ring-star{color:#f9a8d4}
+
+@media(max-width:640px){#cosmic-planet{display:none}}
+@media(prefers-reduced-motion:reduce){#cosmic-planet,.planet-ring,.planet-core,.planet-atmo,.ring-star-track,.planet-eye::after{animation:none!important}}
+
+/* ── Page transition ── */
+.page{
+  display:none;max-width:var(--page-w);margin:0 auto;padding:var(--space-2xl) 20px 60px;
+  opacity:0;transform:translateY(18px) scale(.995);
+  transition:opacity .35s ease,transform .35s cubic-bezier(.4,0,.2,1);
+}
+.page.active{
+  display:block;opacity:1;transform:translateY(0) scale(1);
+  animation:pageEnter .45s cubic-bezier(.4,0,.2,1) forwards;
+}
+@keyframes pageEnter{
+  from{opacity:0;transform:translateY(18px) scale(.995)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+/* ── Button ripple ── */
+.btn{position:relative;overflow:hidden}
+.btn .ripple{
+  position:absolute;border-radius:50%;background:rgba(255,255,255,.45);
+  transform:scale(0);animation:ripple .55s linear;pointer-events:none;
+}
+@keyframes ripple{to{transform:scale(4);opacity:0}}
+
+/* ── Enhanced card hover ── */
+.card{
+  background:var(--glass-bg);backdrop-filter:blur(10px);
+  border:1px solid var(--glass-border);border-radius:var(--radius-lg);
+  padding:var(--space-xl);margin-bottom:var(--space-lg);box-shadow:var(--shadow);
+  transition:transform .25s cubic-bezier(.34,1.56,.64,1),box-shadow .25s ease,border-color .25s ease;
+}
+.card:hover{
+  transform:translateY(-4px) scale(1.005);
+  box-shadow:0 12px 32px rgba(124,58,237,.12),0 4px 12px rgba(0,0,0,.05);
+  border-color:rgba(139,92,246,.25);
+}
+
+/* ── Upload zone ── */
+.upload-zone{
+  border:2px dashed var(--border);border-radius:var(--radius-lg);
+  padding:32px;text-align:center;cursor:pointer;transition:all .25s cubic-bezier(.34,1.56,.64,1);
+  color:var(--text-muted);font-size:14px;
+}
+.upload-zone:hover{transform:translateY(-3px) scale(1.01);border-color:var(--accent);background:var(--accent-soft);box-shadow:0 8px 24px rgba(124,58,237,.1)}
+.upload-zone.drag{transform:scale(1.03);border-color:var(--accent);background:var(--accent-soft)}
+
+/* ── Translation columns ── */
+.trans-columns{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px}
+@media(max-width:640px){.trans-columns{grid-template-columns:1fr}}
+.trans-col{overflow-y:auto;max-height:60vh}
+.trans-seg{
+  padding:12px;border-radius:8px;margin-bottom:8px;
+  border:1px solid var(--border);font-size:13px;line-height:1.7;
+  transition:border-color .2s;
+}
+.trans-seg:hover{border-color:var(--accent)}
+
+/* ── Highlights ── */
+.trans-hl{
+  background:linear-gradient(135deg,rgba(139,92,246,.15),rgba(99,102,241,.12));
+  border-bottom:2px solid rgba(139,92,246,.4);
+  border-radius:2px;padding:0 2px;cursor:pointer;position:relative;
+  transition:all .2s;
+}
+.trans-hl:hover{
+  background:linear-gradient(135deg,rgba(139,92,246,.3),rgba(99,102,241,.25));
+  box-shadow:0 0 12px rgba(139,92,246,.35);
+}
+
+/* ── Reasoning popup ── */
+.reason-popup{
+  display:none;position:fixed;z-index:400;
+  max-width:340px;background:var(--surface);
+  border:1px solid var(--border);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-lg);padding:16px;
+}
+.reason-popup::before{
+  content:'';position:absolute;inset:-2px;z-index:-1;border-radius:inherit;opacity:.8;
+  background:conic-gradient(from var(--ai-angle),#a855f7,#6366f1,#3b82f6,#a855f7);
+  animation:ai-spin 4s linear infinite;
+}
+.reason-popup.show{display:block}
+.reason-term{font-weight:600;font-size:14px;margin-bottom:4px}
+.reason-detail{font-size:12px;color:var(--text-muted);line-height:1.6}
+
+/* ── Related terms modal ── */
+.rel-overlay{
+  display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:300;
+  background:rgba(0,0,0,.35);align-items:center;justify-content:center;
+}
+.rel-overlay.show{display:flex}
+.rel-card{
+  background:var(--surface);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
+  max-width:520px;width:90%;max-height:70vh;overflow:hidden;display:flex;flex-direction:column;
+}
+.rel-header{
+  padding:16px 20px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.rel-header h3{font-size:16px;font-weight:600;margin:0}
+.rel-header .close-btn{
+  width:28px;height:28px;border-radius:6px;border:none;background:var(--bg);
+  cursor:pointer;font-size:16px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;
+}
+.rel-header .close-btn:hover{background:var(--red-soft);color:var(--red)}
+.rel-body{padding:12px 20px 20px;overflow-y:auto;flex:1}
+.rel-loading{text-align:center;padding:20px;color:var(--text-muted);font-size:13px}
+.rel-item{
+  display:flex;align-items:center;gap:12px;padding:10px 12px;
+  border-radius:8px;margin-bottom:6px;border:1px solid var(--border);
+  transition:background .15s;
+}
+.rel-item:hover{background:var(--bg)}
+.rel-item .rel-word{flex:1;font-weight:500;font-size:14px}
+.rel-item .rel-trans{
+  color:var(--green);font-size:13px;background:var(--green-soft);
+  padding:2px 10px;border-radius:5px;white-space:nowrap;
+}
+.rel-item .rel-trans.pending{color:var(--text-muted);background:var(--bg)}
+.rel-item .rel-source{font-size:11px;color:var(--text-dim);white-space:nowrap}
+.rel-item .rel-score{font-size:11px;color:var(--text-muted);white-space:nowrap}
+.btn-assoc{
+  background:none;border:none;cursor:pointer;font-size:14px;padding:2px 6px;
+  border-radius:4px;transition:background .15s;line-height:1;
+}
+.btn-assoc:hover{background:var(--accent-soft)}
+</style>
+</head>
+<body>
+
+<!-- ── Cosmic Planet Background（星球宠物 + 环绕星环） ── -->
+<canvas id="space-pet-canvas"></canvas>
+<div id="cosmic-planet" aria-hidden="true" title="我是 Termi，你的术语星球">
+  <div class="planet-atmo"></div>
+  <div class="planet-ring r3"></div>
+  <div class="planet-ring r2"></div>
+  <div class="planet-ring r1"></div>
+  <div class="ring-star-track t3">
+    <span class="ring-star" style="--angle:0deg"></span>
+    <span class="ring-star" style="--angle:120deg"></span>
+    <span class="ring-star" style="--angle:240deg"></span>
+  </div>
+  <div class="ring-star-track t2">
+    <span class="ring-star" style="--angle:60deg"></span>
+    <span class="ring-star" style="--angle:180deg"></span>
+    <span class="ring-star" style="--angle:300deg"></span>
+  </div>
+  <div class="ring-star-track t1">
+    <span class="ring-star" style="--angle:30deg"></span>
+    <span class="ring-star" style="--angle:150deg"></span>
+    <span class="ring-star" style="--angle:270deg"></span>
+  </div>
+  <div class="planet-core"></div>
+  <div class="planet-face">
+    <div class="planet-eye l"></div>
+    <div class="planet-eye r"></div>
+    <div class="planet-cheek l"></div>
+    <div class="planet-cheek r"></div>
+    <div class="planet-mouth"></div>
+  </div>
+</div>
+
+<!-- ── Toast ── -->
+<div class="toast" id="toast"></div>
+
+<!-- ── Nav ── -->
+<nav id="main-nav">
+  <div class="nav-brand">
+    <div class="nav-logo-icon">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="7" fill="url(#logo-gradient)"/>
+        <path d="M8 9h6M8 13h10M8 17h8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        <defs>
+          <linearGradient id="logo-gradient" x1="0" y1="0" x2="28" y2="28">
+            <stop offset="0%" stop-color="#7c3aed"/>
+            <stop offset="100%" stop-color="#0ea5e9"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+    <span class="nav-logo-text">TermPrep</span>
+  </div>
+  <button class="nav-hamburger" id="nav-hamburger" aria-label="菜单" onclick="toggleNav()">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="nav-links" id="nav-links">
+    <button class="nav-link active" data-page="home">首页</button>
+    <button class="nav-link" data-page="analyze">文本分析</button>
+    <button class="nav-link" data-page="extract">术语提取</button>
+    <button class="nav-link" data-page="search">词典搜索</button>
+    <button class="nav-link" data-page="pipeline">流水线</button>
+    <button class="nav-link" data-page="db">词库管理</button>
+    <a class="nav-github" href="https://github.com/dzha0118-ai/termprep" target="_blank">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+    <button class="theme-toggle" id="theme-toggle" aria-label="切换主题" onclick="toggleTheme()"><span id="theme-icon">🌙</span></button>
+  </div>
+  <div class="nav-ai-badge" id="ai-status-badge"><span class="ai-dot"></span><span class="ai-text">检测中…</span></div>
+</nav>
+
+<!-- ── Global home backdrop (must be outside .page to avoid transform containment) ── -->
+<svg style="position:fixed;width:0;height:0;z-index:0"><filter id="crystal-noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter></svg>
+<div id="spotlight-overlay" style="position:fixed;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity .6s;background:radial-gradient(800px at 50% 50%,rgba(124,58,237,0.22) 0%,rgba(14,165,233,0.06) 35%,rgba(124,58,237,0.03) 60%,transparent 80%);mix-blend-mode:screen"></div>
+<div id="watermark-grid" style="position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;transition:opacity .4s ease"></div>
+<div id="cursor-glow"></div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- HOME PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page active" id="page-home">
+  <div class="hero">
+    <div class="hero-badge">v0.5 &middot; 译前术语准备工具</div>
+    <h1>Translate smarter,<br><span>not harder</span></h1>
+    <p>自动分析源文本、提取术语、搜索关联词汇、构建术语库。<br>专为翻译学习者打造的完整工具链。</p>
+    <div class="hero-features">
+      <div class="hero-feat ai-glow" onclick="navigateTo('analyze')"><span class="icon blue">&#9670;</span> 文本分析</div>
+      <div class="hero-feat ai-glow" onclick="navigateTo('extract')"><span class="icon green">&#9670;</span> 术语提取</div>
+      <div class="hero-feat ai-glow" onclick="navigateTo('search')"><span class="icon purple">&#9670;</span> 词典搜索</div>
+      <div class="hero-feat ai-glow" onclick="navigateTo('db')"><span class="icon amber">&#9670;</span> 词库管理</div>
+      <div class="hero-feat ai-glow" onclick="navigateTo('pipeline')"><span class="icon cyan">&#9670;</span> 流水线</div>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:560px;margin:20px auto">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <div style="width:6px;height:6px;border-radius:50%;background:var(--green)"></div>
+      <span style="font-size:14px;font-weight:500">词典源状态</span>
+    </div>
+    <div class="source-list" id="home-sources"></div>
+  </div>
+
+  <div style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px">
+    点击上方导航栏开始使用
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ANALYZE PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-analyze">
+  <div class="page-header">
+    <div class="label">Analyze & Translate</div>
+    <h2>文本分析与全文翻译</h2>
+    <p>语言检测、领域识别、难度评估 + 风格化全文翻译、关键术语高亮。</p>
+  </div>
+
+  <!-- AI Settings panel -->
+  <div class="card" id="ai-settings-card">
+    <div class="settings-toggle" onclick="toggleAISettings()">
+      <span style="display:flex;align-items:center;gap:8px"><span>🤖</span> <span>AI 配置</span></span>
+      <span id="ai-settings-arrow">▶</span>
+    </div>
+    <div class="settings-panel" id="ai-settings-panel">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ai-provider">AI Provider</label>
+          <select id="ai-provider">
+            <option value="">不使用 AI（Google/有道 免费）</option>
+            <option value="kimi">Kimi (Moonshot)</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="openai">OpenAI</option>
+            <option value="ollama">Ollama (本地)</option>
+            <option value="custom">自定义 OpenAI-compatible</option>
+          </select>
+          <div class="hint">不选 = 纯免费模式</div>
+        </div>
+        <div class="form-group">
+          <label for="ai-api-key">API Key</label>
+          <input type="password" id="ai-api-key" placeholder="sk-...">
+          <div class="hint">仅保存在浏览器会话，不上传服务器</div>
+        </div>
+        <div class="form-group">
+          <label for="ai-model">模型</label>
+          <input type="text" id="ai-model" placeholder="留空使用默认">
+          <div class="hint">moonshot-v1-128k / gpt-4o-mini</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="ai-base-url">Base URL（可选）</label>
+          <input type="text" id="ai-base-url" placeholder="https://api.../v1">
+          <div class="hint">自定义 API 或 Ollama 时填写</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <label class="toggle-switch">
+          <input type="checkbox" id="ai-use-toggle" onchange="onAIUseToggle()">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">启用 AI 增强（术语对齐 + 智能翻译）</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upload -->
+  <div class="card">
+    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+      <div class="upload-icon">📄</div>
+      <div>拖拽文件到此处，或点击选择</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">支持 .txt .docx .xlsx .pdf（上传后自动分析翻译）</div>
+    </div>
+    <input type="file" id="file-input" accept=".txt,.docx,.xlsx,.pdf" style="display:none" onchange="handleFile(event)">
+    <div id="file-name" style="font-size:13px;color:var(--text-muted);margin-top:8px;display:none"></div>
+  </div>
+
+  <!-- Text input -->
+  <div class="card">
+    <div class="form-group">
+      <label for="analyze-text">输入文本</label>
+      <textarea id="analyze-text" placeholder="粘贴要分析+翻译的文本…"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>目标语言</label>
+        <select id="trans-target">
+          <option value="auto">自动检测（中↔英）</option><option value="en">翻译为英文</option><option value="zh">翻译为中文</option>
+        </select>
+      </div>
+      <div class="form-group"><label>领域（可选）</label>
+        <select id="trans-domain">
+          <option value="general">自动识别</option>
+          <option value="academic">学术</option><option value="legal">法律</option>
+          <option value="medical">医学</option>
+          <option value="finance">金融</option><option value="it">信息技术</option><option value="news">新闻</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary ai-btn" onclick="doAnalyze()">分析并翻译</button>
+    <div class="spinner" id="analyze-spinner"><div class="spinner-dot"></div>分析翻译中…</div>
+    <div class="result-box" id="analyze-result">
+      <h4>分析结果</h4>
+      <div class="stat-row" id="analyze-stats"></div>
+      <div id="analyze-detail" style="font-size:13px;color:var(--text-muted);margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- Translation result -->
+  <div class="card" id="trans-result-card" style="display:none">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span id="trans-title">翻译结果</span>
+      <div>
+        <button class="btn btn-sm btn-secondary" onclick="toggleReview()" id="review-btn">📋 审校模式</button>
+        <span id="trans-style" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
+    </div>
+    <!-- TM Matches -->
+    <div id="tm-matches" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--accent-soft);border-radius:8px;font-size:12px">
+      <strong style="color:var(--accent)">🔄 翻译记忆匹配：</strong><span id="tm-content"></span>
+    </div>
+    <div class="trans-columns">
+      <div class="trans-col"><h4 style="margin-bottom:8px">原文</h4><div id="trans-source-view"></div></div>
+      <div class="trans-col"><h4 style="margin-bottom:8px">译文</h4><div id="trans-target-view"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- EXTRACT PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-extract">
+  <div class="page-header">
+    <div class="label">Extract</div>
+    <h2>术语提取</h2>
+    <p>高频词、N-gram、专有名词识别。</p>
+  </div>
+  <div class="card">
+    <div class="form-group">
+      <label for="extract-text">输入文本</label>
+      <textarea id="extract-text" placeholder="粘贴要提取术语的文本…"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="extract-top">提取数量</label>
+        <input type="number" id="extract-top" value="30" min="5" max="100">
+      </div>
+    </div>
+    <button class="btn btn-primary ai-btn" onclick="doExtract()">提取术语</button>
+    <div class="spinner" id="extract-spinner"><div class="spinner-dot"></div>提取中…</div>
+    <div class="result-box" id="extract-result">
+      <h4>提取结果</h4>
+      <div class="table-wrap">
+        <button class="btn btn-sm btn-secondary" onclick="translateAll()" id="trans-all-btn" style="display:none;margin-bottom:12px">翻译全部术语</button>
+        <table>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>翻译 / 释义</th></tr></thead>
+          <tbody id="extract-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- SEARCH PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-search">
+  <div class="page-header">
+    <div class="label">Search</div>
+    <h2>词典搜索</h2>
+    <p>搜索术语的翻译、释义、搭配和例句。</p>
+  </div>
+  <div class="card">
+    <div class="form-row">
+      <div class="form-group">
+        <label for="search-term">搜索词</label>
+        <input type="text" id="search-term" placeholder="输入要搜索的术语…">
+      </div>
+      <div class="form-group">
+        <label for="search-limit">结果数</label>
+        <input type="number" id="search-limit" value="10" min="1" max="50">
+      </div>
+    </div>
+    <button class="btn btn-primary ai-btn" onclick="doSearch()">搜索</button>
+    <div class="spinner" id="search-spinner"><div class="spinner-dot"></div>搜索中…</div>
+    <div class="result-box" id="search-result">
+      <h4>搜索结果</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>关联词</th><th>类型</th><th>释义/翻译</th><th>来源</th><th>相关度</th></tr></thead>
+          <tbody id="search-table"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="result-box" id="assoc-result">
+      <h4>关联术语</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>术语</th><th>翻译</th><th>来源</th><th>匹配度</th></tr></thead>
+          <tbody id="assoc-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PIPELINE PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-pipeline">
+  <div class="page-header">
+    <div class="label">Pipeline</div>
+    <h2>全自动流水线</h2>
+    <p>分析 → 提取 → 搜索 → 入库 → 报告 → 导出，一键完成。</p>
+  </div>
+  <div class="card">
+    <div class="form-group">
+      <label for="pipeline-text">输入文本</label>
+      <textarea id="pipeline-text" placeholder="粘贴源文本…"></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="pipeline-name">项目名称</label>
+        <input type="text" id="pipeline-name" value="MyProject" placeholder="项目名称">
+      </div>
+      <div class="form-group">
+        <label for="pipeline-top">提取术语数</label>
+        <input type="number" id="pipeline-top" value="20" min="5" max="100">
+      </div>
+    </div>
+    <div class="form-row" style="align-items:center;margin-top:8px">
+      <label class="toggle-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle-switch">
+          <input type="checkbox" id="pipeline-rag" style="opacity:0;width:0;height:0">
+          <span class="toggle-slider"></span>
+        </span>
+        启用医疗 RAG（检索增强生成）
+      </label>
+      <span style="font-size:12px;color:var(--text-muted)">从内置医学语料库检索相关术语与上下文</span>
+    </div>
+    <button class="btn btn-primary ai-btn" onclick="doPipeline()">运行流水线</button>
+    <div class="progress-wrap" id="pipeline-progress">
+      <div class="progress-track"><div class="progress-fill" id="pipeline-progress-fill"></div></div>
+      <div class="progress-label">
+        <span id="pipeline-progress-step">准备中…</span>
+        <span id="pipeline-progress-pct">0%</span>
+      </div>
+    </div>
+    <div class="spinner" id="pipeline-spinner"><div class="spinner-dot"></div>运行中…</div>
+    <div class="result-box" id="pipeline-result">
+      <h4>流水线结果</h4>
+      <div id="pipeline-steps"></div>
+      <div id="pipeline-summary" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></div>
+      <div id="pipeline-terms" style="margin-top:16px;display:none">
+        <h4 style="margin-bottom:8px">提取术语</h4>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th></tr></thead>
+          <tbody id="pipeline-terms-table"></tbody>
+        </table></div>
+      </div>
+      <div id="pipeline-report" style="margin-top:16px;display:none">
+        <h4>译前准备报告 <button class="btn btn-sm btn-secondary" onclick="downloadReport()" style="float:right">下载报告</button></h4>
+        <pre id="pipeline-report-content" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto;margin-top:8px"></pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- DB PAGE -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="page" id="page-db">
+  <div class="page-header">
+    <div class="label">Termbase</div>
+    <h2>词库管理</h2>
+    <p>查看、搜索和管理本地术语库。</p>
+  </div>
+
+  <!-- Database list -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+      <span class="card-title" style="margin-bottom:0">词库列表</span>
+      <button class="btn btn-sm btn-secondary" onclick="loadDbList()">刷新</button>
+    </div>
+    <div id="db-list-content"><div class="spinner show"><div class="spinner-dot"></div>加载中…</div></div>
+  </div>
+
+  <!-- Search in database -->
+  <div class="card">
+    <div class="card-title">搜索词库</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="db-search-q">搜索词</label>
+        <input type="text" id="db-search-q" placeholder="输入关键词…">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="doDbSearch()">搜索</button>
+    <div class="spinner" id="db-search-spinner"><div class="spinner-dot"></div>搜索中…</div>
+    <div class="result-box" id="db-search-result">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>术语</th><th>翻译</th><th>类型</th><th>领域</th><th>状态</th></tr></thead>
+          <tbody id="db-search-table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add term -->
+  <div class="card">
+    <div class="card-title">添加术语</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="db-add-word">术语</label>
+        <input type="text" id="db-add-word" placeholder="英文术语">
+      </div>
+      <div class="form-group">
+        <label for="db-add-trans">翻译</label>
+        <input type="text" id="db-add-trans" placeholder="中文翻译">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="db-add-type">词性</label>
+        <input type="text" id="db-add-type" placeholder="n. / v. / adj.">
+      </div>
+      <div class="form-group">
+        <label for="db-add-domain">领域</label>
+        <input type="text" id="db-add-domain" placeholder="medical / legal / tech">
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="doDbAdd()">添加</button>
+    <div class="result-box" id="db-add-result" style="margin-top:12px"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- Reasoning popup -->
+<div class="reason-popup" id="reason-popup">
+  <div class="reason-term" id="reason-term"></div>
+  <div class="reason-detail" id="reason-detail"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- ASSOCIATION MODAL -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div class="rel-overlay" id="rel-overlay" onclick="if(event.target===this)closeRelModal()">
+  <div class="rel-card">
+    <div class="rel-header">
+      <h3 id="rel-title">\u5173\u8054\u672f\u8bed</h3>
+      <button class="close-btn" onclick="closeRelModal()">&times;</button>
+    </div>
+    <div class="rel-body" id="rel-body">
+      <div class="rel-loading">\u641c\u7d22\u5173\u8054\u672f\u8bed\u4e2d...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- JAVASCRIPT -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<script>
+// ── Navigation ──
+// ── Mobile nav toggle ──
+function toggleNav() {
+  var nav = document.getElementById('main-nav');
+  if (nav) nav.classList.toggle('open');
+}
+function closeNav() {
+  var nav = document.getElementById('main-nav');
+  if (nav) nav.classList.remove('open');
+}
+
+function navigateTo(page) {
+  closeNav();
+  document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+  const target = document.querySelector('.nav-link[data-page="'+page+'"]');
+  if (target) target.classList.add('active');
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  var el = document.getElementById('page-' + page);
+  if (el) { el.classList.add('active'); }
+  // Cosmic planet slow parallax reset
+  var planet = document.getElementById('cosmic-planet');
+  if (planet) {
+    planet.style.transition = 'transform .6s cubic-bezier(.4,0,.2,1), opacity .5s ease';
+    planet.style.transform = 'translate(-50%,-50%) scale(1)';
+    setTimeout(function(){ planet.style.transition = ''; }, 620);
+  }
+  // Watermark grid: only active on home
+  var grid = document.getElementById('watermark-grid');
+  if (grid) { grid.style.opacity = (page === 'home') ? '1' : '0'; }
+  var spotlight = document.getElementById('spotlight-overlay');
+  if (spotlight && page !== 'home') { spotlight.style.opacity = '0'; }
+}
+
+document.querySelectorAll('.nav-link').forEach(btn => {
+  btn.addEventListener('click', () => navigateTo(btn.dataset.page));
+});
+
+// ── AI status badge ──
+async function updateAIStatus() {
+  var badge = document.getElementById('ai-status-badge');
+  if (!badge) return;
+  var aiText = badge.querySelector('.ai-text');
+  if (!aiText) aiText = badge;
+  try {
+    var data = await apiGet('/api/agents/engines');
+    var ai = (data.engines || []).find(function(e){ return e.name === 'ai'; });
+    if (ai && ai.available && ai.health) {
+      var provider = (data.settings && data.settings.ai_provider) || 'AI';
+      aiText.textContent = provider.toUpperCase() + ' 已接入';
+      badge.classList.remove('off');
+    } else if (ai && ai.available) {
+      aiText.textContent = 'AI 未配置';
+      badge.classList.add('off');
+    } else {
+      aiText.textContent = 'AI 未接入';
+      badge.classList.add('off');
+    }
+  } catch(e) {
+    aiText.textContent = 'AI 离线';
+    badge.classList.add('off');
+  }
+}
+updateAIStatus();
+
+// Close mobile nav when clicking outside or resizing to desktop
+document.addEventListener('click', function(e){
+  var nav = document.getElementById('main-nav');
+  var ham = document.getElementById('nav-hamburger');
+  if (nav && nav.classList.contains('open') && !nav.contains(e.target)) closeNav();
+});
+window.addEventListener('resize', function(){
+  if (window.innerWidth > 768) closeNav();
+});
+
+// ── Theme toggle ──
+(function(){
+  var saved = sessionStorage.getItem('termprep-theme');
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  // Default to dark unless user explicitly chose light
+  if (saved === 'light') {
+    document.documentElement.classList.remove('dark');
+  } else if (saved === 'dark' || (!saved && prefersDark) || !saved) {
+    document.documentElement.classList.add('dark');
+  }
+  updateThemeIcon();
+})();
+function toggleTheme() {
+  document.documentElement.classList.toggle('dark');
+  var isDark = document.documentElement.classList.contains('dark');
+  sessionStorage.setItem('termprep-theme', isDark ? 'dark' : 'light');
+  updateThemeIcon();
+}
+function updateThemeIcon() {
+  var icon = document.getElementById('theme-icon');
+  if (icon) icon.textContent = document.documentElement.classList.contains('dark') ? '☀️' : '🌙';
+}
+
+// ── Toast ──
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ── API helper ──
+async function api(url, data) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+async function apiGet(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Load sources on home ──
+async function loadSources() {
+  try {
+    const data = await apiGet('/api/sources');
+    const names = {youdao:'\u6709\u9053\u8bcd\u5178', webster:'Merriam-Webster', wikipedia:'Wikipedia'};
+    document.getElementById('home-sources').innerHTML = data.sources.map(s =>
+      `<span class="source-tag ${s.available ? 'ok' : 'no'}">${s.available ? '\u2713' : '\u2717'} ${names[s.name] || s.name}</span>`
+    ).join('');
+  } catch {}
+}
+loadSources();
+
+// ── AI Settings panel ──
+var _aiConfig = { enabled: false, provider: '', apiKey: '', model: '', baseUrl: '' };
+function loadAISettings() {
+  var provider = document.getElementById('ai-provider').value;
+  var apiKey = document.getElementById('ai-api-key').value.trim();
+  var model = document.getElementById('ai-model').value.trim();
+  var baseUrl = document.getElementById('ai-base-url').value.trim();
+  var enabled = document.getElementById('ai-use-toggle').checked;
+  if (enabled && provider && !apiKey) {
+    document.getElementById('ai-use-toggle').checked = false;
+    enabled = false;
+    toast('请填写 API Key 或关闭 AI 增强');
+  }
+  _aiConfig = { enabled, provider, apiKey, model, baseUrl };
+}
+function onAIUseToggle() {
+  var provider = document.getElementById('ai-provider').value;
+  var apiKey = document.getElementById('ai-api-key').value.trim();
+  if (document.getElementById('ai-use-toggle').checked && (!provider || !apiKey)) {
+    document.getElementById('ai-use-toggle').checked = false;
+    toast('请选择 Provider 并填写 API Key');
+    toggleAISettings(true);
+    document.getElementById('ai-api-key').focus();
+  }
+}
+function toggleAISettings(forceOpen) {
+  var panel = document.getElementById('ai-settings-panel');
+  var arrow = document.getElementById('ai-settings-arrow');
+  if (forceOpen) { panel.classList.add('open'); arrow.textContent = '▼'; return; }
+  panel.classList.toggle('open');
+  arrow.textContent = panel.classList.contains('open') ? '▼' : '▶';
+}
+
+function getAIHeaders() {
+  return _aiConfig.enabled && _aiConfig.apiKey ? {
+    'X-AI-Provider': _aiConfig.provider,
+    'X-AI-Api-Key': _aiConfig.apiKey,
+    'X-AI-Model': _aiConfig.model,
+    'X-AI-Base-Url': _aiConfig.baseUrl
+  } : {};
+}
+
+async function apiWithAI(url, data) {
+  var headers = {'Content-Type': 'application/json'};
+  Object.assign(headers, getAIHeaders());
+  var res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(data) });
+  if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  return res.json();
+}
+
+// ── Analyze ──
+var _analyzedText = '';
+
+async function doAnalyze() {
+  loadAISettings();
+  var text = document.getElementById('analyze-text').value.trim();
+  var fileInput = document.getElementById('file-input');
+  var hasFile = fileInput.files && fileInput.files.length > 0;
+  // If user typed text, always use text (not old file)
+  if (text) { hasFile = false; }
+  if (!text && !hasFile) { toast('请粘贴文本或上传文件'); return; }
+
+  var spinner = document.getElementById('analyze-spinner');
+  var analyzeBox = document.getElementById('analyze-result');
+  var transCard = document.getElementById('trans-result-card');
+  spinner.classList.add('show'); analyzeBox.classList.remove('show'); transCard.style.display = 'none';
+  if (window.petSetThinking) window.petSetThinking(true);
+
+  try {
+    var domain = document.getElementById('trans-domain').value;
+    var target = document.getElementById('trans-target').value;
+    var data;
+
+    if (hasFile) {
+      // Upload file → get translation with analysis built-in
+      // Pass AI config via headers if enabled
+      var upHeaders = {};
+      Object.assign(upHeaders, getAIHeaders());
+      var form = new FormData();
+      form.append('file', fileInput.files[0]);
+      form.append('domain', domain);
+      form.append('target_lang', target);
+      var upRes = await fetch('/api/translate/upload', {method:'POST', headers: upHeaders, body:form});
+      if (!upRes.ok) throw new Error((await upRes.text()) || '上传失败');
+      data = await upRes.json();
+      // Run analysis on the source text from segments
+      if (data.segments && data.segments.length) {
+        var srcText = data.segments.map(function(s){return s.source;}).join('\n');
+        showAnalysis(srcText);
+      }
+    } else {
+      // Analyze + translate text input
+      var adata = await api('/api/analyze', {text:text});
+      showAnalysisStats(adata);
+      var body = {text:text, domain:domain, target_lang:target};
+      if (_aiConfig.enabled) {
+        data = await callAgentTranslate(text, domain, adata.lang || 'auto', target);
+      } else {
+        data = await api('/api/translate', body);
+      }
+    }
+
+    if (data && data.translated) {
+      _transData = data;
+      renderTranslation(data);
+      transCard.style.display = 'block';
+      transCard.classList.add('trans-result-enter');
+      transCard.scrollIntoView({behavior:'smooth'});
+    }
+  } catch(e) {
+    toast('失败: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+    if (window.petSetThinking) window.petSetThinking(false);
+  }
+}
+
+function showAnalysis(text) {
+  api('/api/analyze', {text:text}).then(function(adata){ showAnalysisStats(adata); }).catch(function(){});
+}
+
+function showAnalysisStats(adata) {
+  var langNames = {en:'英语',zh:'中文',ja:'日语',ko:'韩语',fr:'法语',de:'德语',es:'西班牙语'};
+  var diffNames = {easy:'简单',medium:'中等',hard:'困难'};
+  var domainNames = {general:'通用',legal:'法律',medical:'医学',finance:'金融',it:'信息技术',academic:'学术',news:'新闻'};
+  var labels = {lang:'语言',char_count:'字符数',word_count:'词汇数',domain:'领域',difficulty:'难度'};
+  var vals = {
+    lang:(langNames[adata.lang]||adata.lang),
+    char_count:adata.char_count,word_count:adata.word_count,
+    domain:(domainNames[adata.domain]||adata.domain),
+    difficulty:(diffNames[adata.difficulty]||adata.difficulty)
+  };
+  var html = '';
+  for (var k in labels) { html += '<span class="stat-badge"><strong>'+labels[k]+'</strong> <span>'+(vals[k]||'-')+'</span></span>'; }
+  document.getElementById('analyze-stats').innerHTML = html;
+  document.getElementById('analyze-detail').textContent = formatAnalysis(adata);
+  document.getElementById('analyze-result').classList.add('show');
+}
+
+function formatAnalysis(d) {
+  var langNames = {en:'\u82f1\u8bed', zh:'\u4e2d\u6587', ja:'\u65e5\u8bed', ko:'\u97e9\u8bed', fr:'\u6cd5\u8bed', de:'\u5fb7\u8bed', es:'\u897f\u73ed\u7259\u8bed'};
+  var diffNames = {easy:'\u7b80\u5355', medium:'\u4e2d\u7b49', hard:'\u56f0\u96be'};
+  var domainNames = {general:'\u901a\u7528', legal:'\u6cd5\u5f8b', medical:'\u533b\u5b66', finance:'\u91d1\u878d', it:'\u4fe1\u606f\u6280\u672f', academic:'\u5b66\u672f', news:'\u65b0\u95fb'};
+  var lang = langNames[d.lang] || d.lang;
+  var diff = diffNames[d.difficulty] || d.difficulty;
+  var dom = domainNames[d.domain] || d.domain;
+  return '\u8bed\u8a00\uff1a' + lang + '  |  \u9886\u57df\uff1a' + dom + '  |  \u96be\u5ea6\uff1a' + diff;
+}
+
+async function callAgentTranslate(text, domain, sourceLang, targetLang) {
+  var termData = await apiWithAI('/api/agents/term', {text: text, project_name: 'browser', top_n: 20});
+  var transData = await apiWithAI('/api/agents/translate', {
+    text: text,
+    glossary: termData.glossary || null,
+    domain: domain,
+    source_lang: sourceLang,
+    target_lang: targetLang,
+    engine: 'ai'
+  });
+  // If AI returned empty, fall back to free engine silently
+  if (!transData.translated && transData.errors && transData.errors.length) {
+    toast('AI 翻译失败，已自动降级为免费引擎');
+    var free = await api('/api/translate', {text:text, domain:domain, target_lang:targetLang, source_lang:sourceLang});
+    return free;
+  }
+
+  // Build AI-driven highlights from glossary terms if backend didn't provide highlights
+  var terms = ((termData.glossary || {}).terms || []);
+  var segs = (transData.segments || []).map(function(s, idx){
+    return {
+      index: idx,
+      source: s.source,
+      target: s.target,
+      highlights: s.highlights && s.highlights.length ? s.highlights : buildHighlights(s.source, terms)
+    };
+  });
+  // If there are no segments but there is translated text, create one segment with highlights
+  if (!segs.length && transData.translated) {
+    segs = [{
+      index: 0,
+      source: text,
+      target: transData.translated,
+      highlights: buildHighlights(text, terms)
+    }];
+  }
+
+  return {
+    translated: transData.translated,
+    source_lang: transData.source_lang,
+    target_lang: transData.target_lang,
+    domain: transData.domain,
+    style_used: 'AI 风格化翻译',
+    segments: segs,
+    tm_matches: [],
+    errors: transData.errors || []
+  };
+}
+
+function buildHighlights(sourceText, terms) {
+  var hls = [];
+  if (!terms || !terms.length) return hls;
+  terms.forEach(function(t){
+    var word = t.source_term;
+    if (!word) return;
+    var regex = new RegExp('\\\\b' + escRegex(word) + '\\\\b', 'gi');
+    var match;
+    while ((match = regex.exec(sourceText)) !== null) {
+      hls.push({
+        start: match.index,
+        end: match.index + word.length,
+        term: word,
+        translation: t.target_translation || '',
+        reasoning: t.note || (t.term_type ? 'AI 术语：' + t.term_type : 'AI 提取术语')
+      });
+    }
+  });
+  return hls.sort(function(a,b){return a.start - b.start;});
+}
+
+function escRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\\\]/g, '\\\\$&');
+}
+
+// ── Extract ──
+var _extractedWords = [];
+
+async function doExtract() {
+  loadAISettings();
+  const text = document.getElementById('extract-text').value.trim();
+  if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
+  const top = parseInt(document.getElementById('extract-top').value) || 30;
+  const spinner = document.getElementById('extract-spinner');
+  const result = document.getElementById('extract-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  if (window.petSetThinking) window.petSetThinking(true);
+  try {
+    let terms = [];
+    if (_aiConfig.enabled && _aiConfig.apiKey) {
+      const termData = await apiWithAI('/api/agents/term', {text, project_name: 'browser', top_n: top});
+      const glossaryTerms = ((termData.glossary || {}).terms || []);
+      terms = glossaryTerms.map((t, i) => ({
+        word: t.source_term,
+        freq: t.frequency || 1,
+        type: t.term_type || 'ai',
+        score: t.score || 0,
+        translation: t.target_translation || ''
+      }));
+    }
+    if (!terms.length) {
+      const data = await api('/api/extract', {text, top_n: top});
+      terms = data.terms;
+    }
+    _extractedWords = terms;
+    const tbody = document.getElementById('extract-table');
+    tbody.innerHTML = terms.map((t, i) =>
+      '<tr class=\"table-row-in\"><td>'+(i+1)+'</td><td><strong>'+esc(t.word)+'</strong></td><td>'+t.freq+'</td><td>'+esc(t.type)+'</td><td class=\"text-mono\">'+t.score+'</td><td id=\"trans-'+i+'\">'+
+      (t.translation
+        ? '<span style=\"color:var(--green);font-size:12px;line-height:1.5\">'+esc(t.translation)+'</span>'
+        : '<button class=\"btn btn-sm btn-secondary\" data-idx=\"'+i+'\" data-word=\"'+esc(t.word)+'\" onclick=\"translateTerm(this)\">\u7ffb\u8bd1</button>')+
+      '</td></tr>'
+    ).join('');
+    document.getElementById('trans-all-btn').style.display = 'inline-flex';
+    result.classList.add('show');
+  } catch(e) {
+    toast('\u63d0\u53d6\u5931\u8d25: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+    if (window.petSetThinking) window.petSetThinking(false);
+  }
+}
+
+async function translateTerm(btnOrIdx, word) {
+  // New calling convention: button element with data-idx + data-word
+  var idx, cell;
+  if (typeof btnOrIdx === 'object' && btnOrIdx.dataset) {
+    idx = btnOrIdx.dataset.idx;
+    word = btnOrIdx.dataset.word;
+  } else {
+    idx = btnOrIdx;
+  }
+  cell = document.getElementById('trans-'+idx);
+  cell.innerHTML = '<span class="spinner show" style="padding:0"><div class="spinner-dot" style="width:12px;height:12px"></div></span>';
+
+  // Helper: try searching with a given term
+  async function trySearch(termToSearch) {
+    try {
+      return await api('/api/search', {term: termToSearch, limit: 5});
+    } catch(e) { return {results:[]}; }
+  }
+
+  // Helper: extract translation from search results
+  function extractTrans(results, srcWord) {
+    var isCN = /[\u4e00-\u9fff]/.test(srcWord);
+    for (var i = 0; i < results.length; i++) {
+      var r = results[i];
+      var src = r.source || '';
+      var wordCN = r.word && /[\u4e00-\u9fff]/.test(r.word);
+      if (src.startsWith('wikipedia') && isCN && wordCN) continue;
+      if (src.startsWith('wikipedia') && !isCN && !wordCN) continue;
+      if (!src.startsWith('wikipedia')) {
+        if (isCN && !wordCN) return '\u2192 ' + esc(r.word);
+        if (!isCN && wordCN) return '\u2192 ' + esc(r.word);
+        if (r.definition && r.definition.length > 2 && r.definition.length < 200) return esc(r.definition.substring(0,100));
+      }
+    }
+    if (results.length) {
+      var fb = results[0];
+      return esc((fb.definition||fb.word||'').substring(0,80));
+    }
+    return null;
+  }
+
+  try {
+    // Truncate long terms to improve API hit rate
+    var searchTerm = word;
+    if (word.length > 50) {
+      searchTerm = word.substring(0, 50);
+    }
+
+    var data = await trySearch(searchTerm);
+    var resultText = extractTrans(data.results, word);
+
+    // If no result and has multiple words, try word-by-word then combine
+    if (!resultText && searchTerm.length > 20) {
+      var shortTerm = searchTerm.split(/[\s\-]+/).slice(0, 3).join(' ');
+      if (shortTerm.length < searchTerm.length && shortTerm.length > 3) {
+        var data2 = await trySearch(shortTerm);
+        resultText = extractTrans(data2.results, shortTerm);
+        if (resultText) resultText += ' \u2026';
+      }
+    }
+    // Word-by-word fallback for 2-word phrases
+    if (!resultText) {
+      var words = searchTerm.split(/[\s\-]+/);
+      if (words.length >= 2) {
+        var wordResults = [];
+        for (var wi = 0; wi < Math.min(words.length, 3); wi++) {
+          var wd = await trySearch(words[wi]);
+          var wt = extractTrans(wd.results, words[wi]);
+          if (wt) wordResults.push(wt.replace('\u2192 ',''));
+        }
+        if (wordResults.length > 0) {
+          resultText = '\u2192 ' + wordResults.join('');
+        }
+      }
+    }
+
+    cell.innerHTML = resultText
+      ? '<span style="color:var(--green);font-size:12px;line-height:1.5">' + resultText + '</span>'
+      : '<span class="text-muted" style="font-size:12px">\u65e0\u7ed3\u679c</span>';
+  } catch(e) {
+    cell.innerHTML = '<span class="text-muted" style="font-size:12px">\u5931\u8d25</span>';
+  }
+}
+
+async function translateAll() {
+  var btn = document.getElementById('trans-all-btn');
+  btn.disabled = true; btn.textContent = '翻译中...';
+  var buttons = document.querySelectorAll('#extract-table button[data-idx]');
+  for (var i = 0; i < buttons.length; i++) {
+    await translateTerm(buttons[i]);
+    await new Promise(function(r){setTimeout(r, 500);});
+  }
+  btn.textContent = '\u2713 \u7ffb\u8bd1\u5b8c\u6210';
+  btn.style.background = 'var(--green-soft)'; btn.style.color = 'var(--green)'; btn.style.borderColor = 'transparent';
+  setTimeout(function(){ btn.style.display='none'; }, 3000);
+}
+
+// ── Association ──
+async function associateTerm(idx, word) {
+  // Show modal with loading state
+  document.getElementById('rel-title').textContent = '\u5173\u8054\u672f\u8bed: ' + esc(word);
+  document.getElementById('rel-body').innerHTML = '<div class="rel-loading"><div class="spinner-dot" style="margin:0 auto"></div><div style="margin-top:8px">\u641c\u7d22\u5173\u8054\u672f\u8bed\u4e2d...</div></div>';
+  document.getElementById('rel-overlay').classList.add('show');
+
+  try {
+    var data = await api('/api/associate', {term: word, limit: 15});
+    if (!data.related || data.related.length === 0) {
+      document.getElementById('rel-body').innerHTML = '<div class="empty-state"><div class="big">\ud83d\udd0d</div>\u672a\u627e\u5230\u5173\u8054\u672f\u8bed</div>';
+      return;
+    }
+
+    var sources = {conceptnet:'ConceptNet', wikipedia:'Wikipedia', youdao:'\u6709\u9053'};
+    var html = '';
+    for (var i = 0; i < data.related.length; i++) {
+      var r = data.related[i];
+      var srcName = sources[r.source] || r.source || '';
+      var hasTrans = r.translation && r.translation.length > 1;
+      html += '<div class="rel-item">';
+      html += '<div class="rel-word">' + esc(r.word) + '</div>';
+      html += '<div class="rel-trans' + (hasTrans ? '' : ' pending') + '">' + (hasTrans ? esc(r.translation) : '\u7ffb\u8bd1\u4e2d...') + '</div>';
+      html += '<div class="rel-source">' + esc(srcName) + '</div>';
+      html += '<div class="rel-score">' + (typeof r.score === 'number' ? (r.score * 100).toFixed(0) + '%' : '') + '</div>';
+      html += '</div>';
+    }
+    document.getElementById('rel-body').innerHTML = html;
+
+    // Translate items that don't have translations yet
+    for (var j = 0; j < data.related.length; j++) {
+      var item = data.related[j];
+      if (!item.translation || item.translation.length <= 1) {
+        (function(jj, wd){
+          fetchTranslation(wd).then(function(trans){
+            if (trans) {
+              var items = document.querySelectorAll('#rel-body .rel-item');
+              if (items[jj]) {
+                var tc = items[jj].querySelector('.rel-trans');
+                if (tc) { tc.textContent = trans; tc.classList.remove('pending'); }
+              }
+            }
+          });
+        })(j, item.word);
+      }
+    }
+  } catch(e) {
+    document.getElementById('rel-body').innerHTML = '<div class="empty-state"><div class="big">\u26a0\ufe0f</div>\u52a0\u8f7d\u5931\u8d25: ' + esc(e.message) + '</div>';
+  }
+}
+
+async function fetchTranslation(word) {
+  try {
+    var data = await api('/api/search', {term: word, limit: 3});
+    if (data.results) {
+      var isCN = /[\u4e00-\u9fff]/.test(word);
+      for (var i = 0; i < data.results.length; i++) {
+        var r = data.results[i];
+        var src = r.source || '';
+        var wordCN = r.word && /[\u4e00-\u9fff]/.test(r.word);
+        if (src.startsWith('wikipedia')) continue;
+        if (isCN && !wordCN) return r.word;
+        if (!isCN && wordCN) return r.word;
+        if (r.definition && r.definition.length > 1 && r.definition.length < 200) return r.definition.substring(0, 60);
+      }
+    }
+  } catch(e) {}
+  return '';
+}
+
+function closeRelModal() {
+  document.getElementById('rel-overlay').classList.remove('show');
+}
+
+// ── Translation ──
+var _transData = null;
+
+function renderTranslation(data) {
+  document.getElementById('trans-title').textContent = '翻译结果';
+  document.getElementById('trans-style').textContent =
+    (data.source_lang||'?') + ' → ' + (data.target_lang||'?') + ' | ' +
+    (data.style_used||'通用风格');
+
+  var srcView = document.getElementById('trans-source-view');
+  var tgtView = document.getElementById('trans-target-view');
+  srcView.innerHTML = ''; tgtView.innerHTML = '';
+
+  if (!data.segments || !data.segments.length) {
+    srcView.innerHTML = '<div class="trans-seg">' + esc(data.translated||'') + '</div>';
+    return;
+  }
+
+  data.segments.forEach(function(seg, si) {
+    // Source with highlights (using raw text for positions)
+    var raw = seg.source;
+    if (seg.highlights && seg.highlights.length) {
+      var parts = [];
+      var last = 0;
+      var hls = seg.highlights.slice().sort(function(a,b){return a.start - b.start});
+      for (var h = 0; h < hls.length; h++) {
+        var hl = hls[h];
+        if (hl.start < last) continue; // skip overlapping
+        parts.push(esc(raw.substring(last, hl.start)));
+        var term = esc(raw.substring(hl.start, Math.min(hl.end, raw.length)));
+        parts.push('<span class="trans-hl" data-idx="'+si+'" data-term="'+
+          esc(hl.term||'')+'" data-trans="'+esc(hl.translation||'')+'" data-reason="'+
+          esc(hl.reasoning||'')+'">'+term+'</span>');
+        last = Math.min(hl.end, raw.length);
+      }
+      parts.push(esc(raw.substring(last)));
+      srcView.innerHTML += '<div class="trans-seg">'+parts.join('')+'</div>';
+    } else {
+      srcView.innerHTML += '<div class="trans-seg">'+esc(raw)+'</div>';
+    }
+    tgtView.innerHTML += '<div class="trans-seg">'+esc(seg.target)+'</div>';
+  });
+
+  // Bind hover events
+  document.querySelectorAll('.trans-hl').forEach(function(el) {
+    el.addEventListener('mouseenter', function(e) {
+      var popup = document.getElementById('reason-popup');
+      popup.querySelector('.reason-term').innerHTML =
+        '<span style="color:var(--accent)">🔍</span> ' +
+        esc(this.dataset.term||'') + ' → ' + esc(this.dataset.trans||'');
+      popup.querySelector('.reason-detail').textContent = this.dataset.reason||'';
+      popup.classList.add('show');
+      positionPopup(popup, e.target);
+    });
+    el.addEventListener('mouseleave', function() {
+      document.getElementById('reason-popup').classList.remove('show');
+    });
+  });
+}
+
+function positionPopup(popup, target) {
+  var rect = target.getBoundingClientRect();
+  var top = rect.bottom + 8;
+  var left = rect.left;
+  if (left + 340 > window.innerWidth) left = window.innerWidth - 350;
+  if (top + 120 > window.innerHeight) top = rect.top - 130;
+  popup.style.top = top + 'px';
+  popup.style.left = left + 'px';
+}
+
+// ── Review Mode & TM ──
+var _reviewMode = false;
+
+function toggleReview() {
+  _reviewMode = !_reviewMode;
+  var btn = document.getElementById('review-btn');
+  btn.textContent = _reviewMode ? '📝 翻译模式' : '📋 审校模式';
+  if (_transData) renderTranslation(_transData);
+}
+
+// Update renderTranslation to show TM matches
+var _origRender = renderTranslation;
+renderTranslation = function(data) {
+  _origRender(data);
+
+  // Show TM matches if available
+  var tmBox = document.getElementById('tm-matches');
+  if (!tmBox) return;
+  if (data.tm_matches && data.tm_matches.length) {
+    var html = data.tm_matches.map(function(m, i) {
+      return '<span style=\"margin-left:6px;color:var(--accent);font-weight:500\">#'+(i+1)+' '+esc(m.target).substring(0,50)+'</span>';
+    }).join('');
+    document.getElementById('tm-content').innerHTML = html;
+    tmBox.style.display = 'block';
+  } else {
+    tmBox.style.display = 'none';
+  }
+
+  // Review mode: add segment indicators
+  if (_reviewMode) {
+    var segs = document.querySelectorAll('.trans-col .trans-seg');
+    segs.forEach(function(seg, i) {
+      var src = segs[i] ? segs[i].textContent.trim() : '';
+      var tgt = segs[i + segs.length/2] ? segs[i + Math.floor(segs.length/2)].textContent.trim() : '';
+      if (src && tgt) {
+        var lenRatio = tgt.length / Math.max(1, src.length);
+        var indicator = lenRatio > 2 ? ' ⚠️长' : lenRatio < 0.3 ? ' ⚠️短' : ' ✓';
+        seg.style.borderLeft = '3px solid ' + (lenRatio > 2 || lenRatio < 0.3 ? 'var(--amber)' : 'var(--green)');
+        seg.setAttribute('title', '长度比: ' + (lenRatio*100).toFixed(0) + '%' + indicator);
+      }
+    });
+  }
+};
+
+function reuseTM(translation) {
+  var tgtView = document.getElementById('trans-target-view');
+  if (tgtView) {
+    tgtView.innerHTML = '<div class="trans-seg" style="border-left:3px solid var(--accent);padding-left:12px">' + esc(translation) + '</div>';
+    toast('已应用翻译记忆');
+  }
+}
+
+function handleFile(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  var nameEl = document.getElementById('file-name');
+  nameEl.textContent = '已选择: ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+  nameEl.style.display = 'block';
+  document.getElementById('trans-text').value = '';
+}
+
+// Upload zone drag-and-drop
+(function(){
+  var zone = document.getElementById('upload-zone');
+  if (!zone) return;
+  zone.addEventListener('dragover', function(e){e.preventDefault();zone.classList.add('drag')});
+  zone.addEventListener('dragleave', function(){zone.classList.remove('drag')});
+  zone.addEventListener('drop', function(e){
+    e.preventDefault();zone.classList.remove('drag');
+    if (e.dataTransfer.files.length){
+      document.getElementById('file-input').files = e.dataTransfer.files;
+      handleFile({target:document.getElementById('file-input')});
+    }
+  });
+})();
+
+// ── Search ──
+async function doSearch() {
+  const term = document.getElementById('search-term').value.trim();
+  if (!term) { toast('\u8bf7\u8f93\u5165\u641c\u7d22\u8bcd'); return; }
+  const limit = parseInt(document.getElementById('search-limit').value) || 10;
+  const spinner = document.getElementById('search-spinner');
+  const result = document.getElementById('search-result');
+  const assocResult = document.getElementById('assoc-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  assocResult.classList.remove('show');
+  if (window.petSetThinking) window.petSetThinking(true);
+
+  // 1. Search dictionary
+  try {
+    loadAISettings();
+    const data = await apiWithAI('/api/search', {term, limit});
+    const tbody = document.getElementById('search-table');
+    if (!data.results || data.results.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">未找到结果</td></tr>';
+    } else {
+      tbody.innerHTML = data.results.map(r => {
+        var def = r.definition || (data.ai_used && r.word ? 'AI 翻译' : '');
+        return '<tr><td><strong>' + esc(r.word||'') + '</strong></td><td>' + esc(r.type||'') + '</td><td>' + esc(def) + '</td><td>' + esc(r.source||'') + '</td><td>' + (typeof r.score === 'number' ? r.score.toFixed(2) : r.score) + '</td></tr>';
+      }).join('');
+    }
+    result.classList.add('show');
+  } catch(e) {
+    toast('搜索失败: ' + e.message);
+  }
+
+  // 2. Fetch Wikipedia summary from browser side
+  var wikiText = '';
+  try {
+    var isCN = /[一-鿿]/.test(term);
+    var wikiUrl = (isCN
+      ? 'https://zh.wikipedia.org/api/rest_v1/page/summary/'
+      : 'https://en.wikipedia.org/api/rest_v1/page/summary/'
+    ) + encodeURIComponent(term);
+    var wikiResp = await fetch(wikiUrl);
+    if (wikiResp.ok) {
+      var wikiData = await wikiResp.json();
+      wikiText = wikiData.extract || '';
+    }
+  } catch(e) {}
+
+  // 3. Fetch related terms (pass wiki text for server-side extraction)
+  try {
+    const relData = await apiWithAI('/api/associate', {term, limit: 15, wiki_text: wikiText});
+    const tbody2 = document.getElementById('assoc-table');
+    if (!relData.related || relData.related.length === 0) {
+      tbody2.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">未找到关联术语</td></tr>';
+    } else {
+      var sources = {conceptnet:'ConceptNet', wikipedia:'Wikipedia', youdao:'有道', ai:'AI'};
+      tbody2.innerHTML = relData.related.map(r => {
+        var trans = r.translation || '';
+        var transHtml = trans ? '<span style="color:var(--green);font-size:12px">' + esc(trans) + '</span>' : '<span class="text-muted" style="font-size:11px">-</span>';
+        return '<tr><td><strong>' + esc(r.word) + '</strong></td><td>' + transHtml + '</td><td>' + esc(sources[r.source]||r.source||'') + '</td><td>' + (typeof r.score === 'number' ? (r.score * 100).toFixed(0) + '%' : '') + '</td></tr>';
+      }).join('');
+    }
+    assocResult.classList.add('show');
+  } catch(e) {
+    document.getElementById('assoc-table').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">关联术语加载失败</td></tr>';
+    assocResult.classList.add('show');
+  }
+
+  spinner.classList.remove('show');
+  if (window.petSetThinking) window.petSetThinking(false);
+}
+
+// ── Pipeline ──
+var _pipelineReport = '';
+
+async function doPipeline() {
+  loadAISettings();
+  const text = document.getElementById('pipeline-text').value.trim();
+  if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
+  const name = document.getElementById('pipeline-name').value || 'MyProject';
+  const top = parseInt(document.getElementById('pipeline-top').value) || 20;
+  const spinner = document.getElementById('pipeline-spinner');
+  const result = document.getElementById('pipeline-result');
+  const progressWrap = document.getElementById('pipeline-progress');
+  const progressFill = document.getElementById('pipeline-progress-fill');
+  const progressStep = document.getElementById('pipeline-progress-step');
+  const progressPct = document.getElementById('pipeline-progress-pct');
+
+  spinner.classList.add('show');
+  progressWrap.classList.add('show');
+  result.classList.remove('show');
+  document.getElementById('pipeline-terms').style.display = 'none';
+  document.getElementById('pipeline-report').style.display = 'none';
+  if (window.petSetThinking) window.petSetThinking(true);
+
+  const steps = [
+    '\u5206\u6790\u6587\u672c\u2026', '\u63d0\u53d6\u672f\u8bed\u2026',
+    '\u641c\u7d22\u5173\u8054\u8bcd\u6c47\u2026', '\u5efa\u7acb\u672f\u8bed\u5e93\u2026',
+    '\u751f\u6210\u62a5\u544a\u2026', '\u5bfc\u51fa\u5b8c\u6210\u2026'
+  ];
+  document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
+    `<div class="pstep pending"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
+  ).join('');
+
+  let currentStep = 0;
+  const stepInterval = setInterval(function(){
+    currentStep = Math.min(steps.length - 1, currentStep + 1);
+    const pct = Math.round((currentStep / steps.length) * 100);
+    progressFill.style.width = pct + '%';
+    progressStep.textContent = steps[currentStep];
+    progressPct.textContent = pct + '%';
+  }, 1200);
+
+  try {
+    const useRag = document.getElementById('pipeline-rag').checked;
+    const data = await apiWithAI('/api/pipeline', {
+      text, project_name: name, top_n: top,
+      use_ai: _aiConfig.enabled, ai_engine: _aiConfig.enabled ? 'ai' : null,
+      use_rag: useRag
+    });
+    clearInterval(stepInterval);
+    progressFill.style.width = '100%';
+    progressStep.textContent = '完成';
+    progressPct.textContent = '100%';
+
+    document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
+      `<div class="pstep done"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
+    ).join('');
+
+    const lines = [];
+    if (data.lang) lines.push(`\u8bed\u8a00: ${data.lang}`);
+    if (data.domain) lines.push(`\u9886\u57df: ${data.domain}`);
+    if (data.terms_count !== undefined) lines.push(`\u63d0\u53d6\u672f\u8bed: ${data.terms_count}`);
+    if (data.duration) lines.push(`\u8017\u65f6: ${data.duration}s`);
+    document.getElementById('pipeline-summary').textContent = lines.join(' | ') || '\u6d41\u6c34\u7ebf\u5b8c\u6210';
+
+    // Terms table
+    if (data.terms && data.terms.length) {
+      document.getElementById('pipeline-terms-table').innerHTML = data.terms.map((t, i) =>
+        '<tr><td>'+(i+1)+'</td><td><strong>'+esc(t.word)+'</strong></td><td>'+t.freq+'</td><td>'+esc(t.type)+'</td><td class="text-mono">'+t.score+'</td></tr>'
+      ).join('');
+      document.getElementById('pipeline-terms').style.display = 'block';
+    }
+
+    // Report
+    if (data.report) {
+      _pipelineReport = data.report;
+      document.getElementById('pipeline-report-content').textContent = data.report.substring(0, 5000);
+      document.getElementById('pipeline-report').style.display = 'block';
+    }
+
+    result.classList.add('show');
+  } catch(e) {
+    clearInterval(stepInterval);
+    progressStep.textContent = '失败';
+    document.getElementById('pipeline-steps').innerHTML =
+      '<div style="color:var(--red);font-size:13px">\u6d41\u6c34\u7ebf\u5931\u8d25: '+esc(e.message)+'</div>';
+    result.classList.add('show');
+  } finally {
+    spinner.classList.remove('show');
+    setTimeout(function(){ progressWrap.classList.remove('show'); progressFill.style.width = '0%'; }, 1200);
+    if (window.petSetThinking) window.petSetThinking(false);
+  }
+}
+
+function downloadReport() {
+  if (!_pipelineReport) { toast('\u65e0\u62a5\u544a\u53ef\u4e0b\u8f7d'); return; }
+  const blob = new Blob([_pipelineReport], {type: 'text/markdown;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'termprep-report.md';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ── DB list ──
+async function loadDbList() {
+  const el = document.getElementById('db-list-content');
+  el.innerHTML = '<div class="spinner show"><div class="spinner-dot"></div>\u52a0\u8f7d\u4e2d\u2026</div>';
+  try {
+    const data = await apiGet('/api/db/list');
+    if (!data.databases || data.databases.length === 0) {
+      el.innerHTML = '<div class="empty-state"><div class="big">\ud83d\udcdd</div>\u6682\u65e0\u8bcd\u5e93\u3002\u4f7f\u7528\u547d\u4ee4\u884c `termprep db init <name>` \u521b\u5efa\u3002</div>';
+      return;
+    }
+    el.innerHTML = '<div class="table-wrap"><table><thead><tr><th>\u540d\u79f0</th><th>\u9886\u57df</th><th>\u8bed\u8a00</th><th>\u672f\u8bed\u6570</th></tr></thead><tbody>' +
+      data.databases.map(d => `<tr><td><strong>${esc(d.name)}</strong></td><td>${esc(d.domain)||'-'}</td><td>${esc(d.lang)||'-'}</td><td>${d.total_terms}</td></tr>`).join('') +
+      '</tbody></table></div>';
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:13px">\u52a0\u8f7d\u5931\u8d25: ${esc(e.message)}</div>`;
+  }
+}
+
+// ── DB search ──
+async function doDbSearch() {
+  const q = document.getElementById('db-search-q').value.trim();
+  if (!q) { toast('\u8bf7\u8f93\u5165\u641c\u7d22\u8bcd'); return; }
+  const spinner = document.getElementById('db-search-spinner');
+  const result = document.getElementById('db-search-result');
+  spinner.classList.add('show');
+  result.classList.remove('show');
+  if (window.petSetThinking) window.petSetThinking(true);
+  try {
+    const data = await api('/api/term/search', {query: q});
+    const tbody = document.getElementById('db-search-table');
+    if (!data.results || data.results.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">\u672a\u627e\u5230\u5339\u914d</td></tr>';
+    } else {
+      tbody.innerHTML = data.results.map(r =>
+        `<tr><td>${r.id||'-'}</td><td><strong>${esc(r.word||'')}</strong></td><td>${esc(r.translation||'')}</td><td>${esc(r.type||'')}</td><td>${esc(r.domain||'')}</td><td>${esc(r.status||'')}</td></tr>`
+      ).join('');
+    }
+    result.classList.add('show');
+  } catch(e) {
+    toast('\u641c\u7d22\u5931\u8d25: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+    if (window.petSetThinking) window.petSetThinking(false);
+  }
+}
+
+// ── DB add ──
+async function doDbAdd() {
+  const word = document.getElementById('db-add-word').value.trim();
+  if (!word) { toast('\u8bf7\u8f93\u5165\u672f\u8bed'); return; }
+  try {
+    const data = await api('/api/term/add', {
+      word,
+      translation: document.getElementById('db-add-trans').value.trim(),
+      type_: document.getElementById('db-add-type').value.trim(),
+      domain: document.getElementById('db-add-domain').value.trim(),
+      status: 'draft',
+    });
+    document.getElementById('db-add-result').innerHTML =
+      `<span style="color:var(--green);font-size:13px">\u2713 \u5df2\u6dfb\u52a0\u672f\u8bed [id=${data.id}]: ${esc(word)}</span>`;
+    document.getElementById('db-add-result').classList.add('show');
+    document.getElementById('db-add-word').value = '';
+    document.getElementById('db-add-trans').value = '';
+    if (window.petPulse) window.petPulse();
+    loadDbList();
+  } catch(e) {
+    toast('\u6dfb\u52a0\u5931\u8d25: ' + e.message);
+  }
+}
+
+function esc(s) {
+  if (typeof s !== 'string') return s;
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Load DB list on page show
+document.querySelector('[data-page="db"]').addEventListener('click', () => {
+  setTimeout(loadDbList, 100);
+});
+
+// ════════════════════════════════════════════════════════════════
+// COSMIC PLANET — 星球宠物交互与星空粒子
+// ════════════════════════════════════════════════════════════════
+(function(){
+  var planet = document.getElementById('cosmic-planet');
+  var eyeL = document.querySelector('.planet-eye.l');
+  var eyeR = document.querySelector('.planet-eye.r');
+  var canvas = document.getElementById('space-pet-canvas');
+  if (!planet || !canvas) return;
+
+  // --- 星空粒子背景 (canvas) ---
+  var ctx = canvas.getContext('2d');
+  var stars = [];
+  var width, height;
+  function resizeCanvas() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+  }
+  function initStars() {
+    stars = [];
+    var count = Math.min(Math.floor((width * height) / 12000), 140);
+    for (var i = 0; i < count; i++) {
+      stars.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        r: Math.random() * 1.4 + .3,
+        alpha: Math.random(),
+        speed: Math.random() * .4 + .05,
+        twinkle: Math.random() * .02 + .005,
+        color: Math.random() > .75 ? '168,85,247' : (Math.random() > .5 ? '99,102,241' : '14,165,233')
+      });
+    }
+  }
+  function drawStars() {
+    ctx.clearRect(0, 0, width, height);
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i];
+      s.alpha += s.twinkle;
+      if (s.alpha > 1 || s.alpha < .15) s.twinkle *= -1;
+      s.y -= s.speed;
+      if (s.y < -4) { s.y = height + 4; s.x = Math.random() * width; }
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(' + s.color + ',' + Math.max(.1, s.alpha * .8) + ')';
+      ctx.fill();
+    }
+    requestAnimationFrame(drawStars);
+  }
+  resizeCanvas(); initStars(); drawStars();
+  window.addEventListener('resize', function(){ resizeCanvas(); initStars(); });
+
+  // --- 星球鼠标视差（带平滑边界） ---
+  var px = 0, py = 0;
+  document.addEventListener('mousemove', function(e){
+    var mx = e.clientX / width - .5;
+    var my = e.clientY / height - .5;
+    px = mx * -40; py = my * -30;
+    planet.style.transform = 'translate(calc(-50% + ' + px + 'px), calc(-50% + ' + py + 'px))';
+  });
+
+  // --- 星球眼睛跟随鼠标 ---
+  function updateEyes(mx, my) {
+    if (!eyeL || !eyeR) return;
+    var rect = planet.getBoundingClientRect();
+    var cx = rect.left + rect.width / 2;
+    var cy = rect.top + rect.height / 2;
+    var dx = mx - cx, dy = my - cy;
+    var angle = Math.atan2(dy, dx);
+    var dist = Math.min(3, Math.sqrt(dx * dx + dy * dy) / 120);
+    var ex = Math.cos(angle) * dist;
+    var ey = Math.sin(angle) * dist;
+    eyeL.style.transform = 'translate(' + ex + 'px,' + ey + 'px)';
+    eyeR.style.transform = 'translate(' + ex + 'px,' + ey + 'px)';
+  }
+  document.addEventListener('mousemove', function(e){
+    requestAnimationFrame(function(){ updateEyes(e.clientX, e.clientY); });
+  });
+
+  // --- 星球点击互动 ---
+  function pulsePlanet() {
+    var core = planet.querySelector('.planet-core');
+    if (!core) return;
+    core.classList.remove('planet-pulse');
+    void core.offsetWidth;
+    core.classList.add('planet-pulse');
+    setTimeout(function(){ core.classList.remove('planet-pulse'); }, 560);
+  }
+  planet.addEventListener('click', function(){
+    pulsePlanet();
+    var msgs = ['Termi 正在学习中…', '发现新术语！', '翻译让生活更美好 ✨', 'A↔中 切换中…', '术语库 +1'];
+    toast(msgs[Math.floor(Math.random() * msgs.length)]);
+  });
+
+  // --- 全局 thinking 状态钩子（兼容旧调用） ---
+  window.petSetThinking = function(isThinking) {
+    if (isThinking) planet.classList.add('thinking');
+    else planet.classList.remove('thinking');
+  };
+  window.petPulse = pulsePlanet;
+})();
+
+// ── Button Ripple ──
+(function(){
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest('.btn');
+    if (!btn) return;
+    var rect = btn.getBoundingClientRect();
+    var r = Math.max(rect.width, rect.height);
+    var span = document.createElement('span');
+    span.className = 'ripple';
+    span.style.width = span.style.height = r + 'px';
+    span.style.left = (e.clientX - rect.left - r / 2) + 'px';
+    span.style.top = (e.clientY - rect.top - r / 2) + 'px';
+    btn.appendChild(span);
+    setTimeout(function(){ span.remove(); }, 560);
+  });
+})();
+
+// ── Mouse Spotlight + Watermark Parallax Grid ──
+(function(){
+  var spotlight = document.getElementById('spotlight-overlay');
+  var grid = document.getElementById('watermark-grid');
+  if (!spotlight || !grid) return;
+  var ticking = false;
+  var onHome = true;
+  var cells = [];
+  var cellW = 110, cellH = 45;
+  var spotR = 600, parallaxR = 400, brightR = 350;
+
+  function updateMetrics() {
+    var w = window.innerWidth, h = window.innerHeight;
+    var minDim = Math.min(w, h);
+    // 响应式网格密度：小屏更稀疏，大屏更密
+    cellW = Math.max(90, Math.min(140, w / 14));
+    cellH = Math.max(38, Math.min(56, h / 18));
+    // 响应式光效半径
+    spotR = Math.min(900, Math.max(420, minDim * .75));
+    parallaxR = Math.min(550, Math.max(280, minDim * .5));
+    brightR = Math.min(480, Math.max(240, minDim * .42));
+  }
+
+  function buildGrid() {
+    updateMetrics();
+    var w = window.innerWidth, h = window.innerHeight;
+    var cols = Math.ceil(w / cellW);
+    var rows = Math.ceil(h / cellH);
+    grid.innerHTML = '';
+    cells = [];
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        var span = document.createElement('span');
+        span.textContent = 'termprep';
+        var cx = c * cellW + cellW / 2;
+        var cy = r * cellH + cellH / 2;
+        var depth = Math.random();
+        span.style.cssText =
+          'position:absolute;font:11px Inter,Noto Sans SC,sans-serif;'+
+          'font-weight:700;letter-spacing:2.5px;color:rgba(139,92,246,0.05);'+
+          'text-transform:uppercase;white-space:nowrap;user-select:none;'+
+          'transition:color .25s ease,transform .25s ease;'+
+          'will-change:transform,color;left:'+cx+'px;top:'+cy+'px';
+        grid.appendChild(span);
+        cells.push({el:span, cx:cx, cy:cy, depth:depth, baseAlpha:0.05 + depth * 0.04});
+      }
+    }
+  }
+  buildGrid();
+  window.addEventListener('resize', buildGrid);
+
+  var observer = new MutationObserver(function() {
+    onHome = document.getElementById('page-home').classList.contains('active');
+    if (!onHome) {
+      spotlight.style.opacity = '0';
+      grid.style.opacity = '0';
+      cells.forEach(function(c){ c.el.style.color = 'rgba(139,92,246,'+c.baseAlpha.toFixed(3)+')'; c.el.style.transform = 'none'; });
+    } else {
+      grid.style.opacity = '1';
+    }
+  });
+  var homeEl = document.getElementById('page-home');
+  if (homeEl) observer.observe(homeEl, { attributes: true, attributeFilter: ['class'] });
+
+  document.addEventListener('mousemove', function(e) {
+    var mx = e.clientX, my = e.clientY;
+    if (!ticking && onHome) {
+      requestAnimationFrame(function() {
+        if (!onHome) { ticking = false; return; }
+        spotlight.style.opacity = '1';
+        spotlight.style.background =
+          'radial-gradient('+spotR+'px at '+mx+'px '+my+'px, '+
+          'rgba(168,85,247,0.32) 0%, rgba(99,102,241,0.18) 25%, rgba(139,92,246,0.07) 50%, rgba(124,58,237,0.02) 70%, transparent 85%)';
+
+        // Parallax shift + brightness per cell
+        cells.forEach(function(c) {
+          var dx = c.cx - mx, dy = c.cy - my;
+          var dist = Math.sqrt(dx*dx + dy*dy);
+
+          // Parallax ripple: closer cells move away from cursor
+          var shift = Math.max(0, 1 - dist / parallaxR);
+          c.el.style.transform = 'translate('+(dx*shift*c.depth*0.6).toFixed(1)+'px,'+(dy*shift*c.depth*0.6).toFixed(1)+'px)';
+
+          // Brightness halo around cursor
+          var alpha = dist < brightR ? (c.baseAlpha + (1 - dist/brightR) * 0.55).toFixed(3) : c.baseAlpha.toFixed(3);
+          c.el.style.color = 'rgba(139,92,246,'+alpha+')';
+
+          // Subtle scale pulse near cursor
+          if (dist < brightR) {
+            var scale = 1 + (1 - dist/brightR) * 0.12;
+            c.el.style.transform += ' scale(' + scale.toFixed(3) + ')';
+          }
+        });
+        ticking = false;
+      });
+      ticking = true;
+    }
+  });
+  document.addEventListener('mouseleave', function() {
+    if (window.matchMedia('(hover:hover)').matches) {
+      spotlight.style.opacity = '0';
+      cells.forEach(function(c){ c.el.style.color = 'rgba(139,92,246,'+c.baseAlpha.toFixed(3)+')'; c.el.style.transform = 'none'; });
+    }
+  });
+
+  // Touch support for mobile devices
+  var touchActive = false;
+  var isTouchDevice = window.matchMedia('(hover:none) and (pointer:coarse)').matches;
+  document.addEventListener('touchstart', function(e) {
+    touchActive = true;
+    if (e.touches.length > 0) {
+      var mx = e.touches[0].clientX, my = e.touches[0].clientY;
+      if (!ticking && onHome) {
+        requestAnimationFrame(function() {
+          if (!onHome) { ticking = false; return; }
+          spotlight.style.opacity = '1';
+          spotlight.style.background =
+            'radial-gradient('+spotR+'px at '+mx+'px '+my+'px, '+
+            'rgba(168,85,247,0.32) 0%, rgba(99,102,241,0.18) 25%, rgba(139,92,246,0.07) 50%, rgba(124,58,237,0.02) 70%, transparent 85%)';
+          cells.forEach(function(c) {
+            var dx = c.cx - mx, dy = c.cy - my;
+            var dist = Math.sqrt(dx*dx + dy*dy);
+            var shift = Math.max(0, 1 - dist / parallaxR);
+            c.el.style.transform = 'translate('+(dx*shift*c.depth*0.6).toFixed(1)+'px,'+(dy*shift*c.depth*0.6).toFixed(1)+'px)';
+            var alpha = dist < brightR ? (c.baseAlpha + (1 - dist/brightR) * 0.55).toFixed(3) : c.baseAlpha.toFixed(3);
+            c.el.style.color = 'rgba(139,92,246,'+alpha+')';
+            if (dist < brightR) {
+              var scale = 1 + (1 - dist/brightR) * 0.12;
+              c.el.style.transform += ' scale(' + scale.toFixed(3) + ')';
+            }
+          });
+          ticking = false;
+        });
+        ticking = true;
+      }
+    }
+  }, {passive:true});
+  document.addEventListener('touchmove', function(e) {
+    if (touchActive && e.touches.length > 0) {
+      var mx = e.touches[0].clientX, my = e.touches[0].clientY;
+      if (!ticking && onHome) {
+        requestAnimationFrame(function() {
+          if (!onHome) { ticking = false; return; }
+          spotlight.style.opacity = '1';
+          spotlight.style.background =
+            'radial-gradient('+spotR+'px at '+mx+'px '+my+'px, '+
+            'rgba(168,85,247,0.32) 0%, rgba(99,102,241,0.18) 25%, rgba(139,92,246,0.07) 50%, rgba(124,58,237,0.02) 70%, transparent 85%)';
+          cells.forEach(function(c) {
+            var dx = c.cx - mx, dy = c.cy - my;
+            var dist = Math.sqrt(dx*dx + dy*dy);
+            var shift = Math.max(0, 1 - dist / parallaxR);
+            c.el.style.transform = 'translate('+(dx*shift*c.depth*0.6).toFixed(1)+'px,'+(dy*shift*c.depth*0.6).toFixed(1)+'px)';
+            var alpha = dist < brightR ? (c.baseAlpha + (1 - dist/brightR) * 0.55).toFixed(3) : c.baseAlpha.toFixed(3);
+            c.el.style.color = 'rgba(139,92,246,'+alpha+')';
+            if (dist < brightR) {
+              var scale = 1 + (1 - dist/brightR) * 0.12;
+              c.el.style.transform += ' scale(' + scale.toFixed(3) + ')';
+            }
+          });
+          ticking = false;
+        });
+        ticking = true;
+      }
+    }
+  }, {passive:true});
+  document.addEventListener('touchend', function() {
+    touchActive = false;
+    if (isTouchDevice) {
+      spotlight.style.opacity = '0.7';
+      spotlight.style.background = 'radial-gradient(600px at 50% 50%,rgba(124,58,237,.3) 0%,rgba(14,165,233,.15) 30%,rgba(124,58,237,.08) 55%,transparent 80%)';
+    } else {
+      spotlight.style.opacity = '0';
+    }
+    cells.forEach(function(c){ c.el.style.color = 'rgba(139,92,246,'+c.baseAlpha.toFixed(3)+')'; c.el.style.transform = 'none'; });
+  });
+})();
+// ── Cursor drag glow (desktop only) ──
+(function(){
+  var glow = document.getElementById('cursor-glow');
+  if (!glow) return;
+  var isTouch = window.matchMedia('(hover:none) and (pointer:coarse)').matches;
+  if (isTouch) return; // 触屏使用 spotlight 即可，避免多余光晕
+  var dragging = false;
+  var visible = false;
+  var raf = null, gx = 0, gy = 0;
+
+  function moveTo(x, y) {
+    gx = x; gy = y;
+    if (raf) return;
+    raf = requestAnimationFrame(function(){
+      glow.style.left = gx + 'px';
+      glow.style.top = gy + 'px';
+      raf = null;
+    });
+  }
+
+  document.addEventListener('mousemove', function(e){
+    if (!visible) {
+      visible = true;
+      glow.style.opacity = dragging ? '1' : '.55';
+    }
+    moveTo(e.clientX, e.clientY);
+  });
+
+  document.addEventListener('mousedown', function(){ dragging = true; glow.classList.add('dragging'); });
+  document.addEventListener('mouseup', function(){ dragging = false; glow.classList.remove('dragging'); if (visible) glow.style.opacity = '.55'; });
+  document.addEventListener('mouseleave', function(){ visible = false; glow.style.opacity = '0'; });
+
+  // Hide when not on home page
+  var homeEl = document.getElementById('page-home');
+  if (homeEl) {
+    var obs = new MutationObserver(function(){
+      var onHome = homeEl.classList.contains('active');
+      glow.style.display = onHome ? '' : 'none';
+      if (!onHome) { visible = false; glow.style.opacity = '0'; }
+    });
+    obs.observe(homeEl, { attributes: true, attributeFilter: ['class'] });
+  }
+})();
+</script>
+</body>
+</html>

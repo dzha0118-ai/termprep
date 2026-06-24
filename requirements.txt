@@ -1,0 +1,2 @@
+# TermPrep — production dependencies
+-e .

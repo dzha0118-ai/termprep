@@ -1,0 +1,37 @@
+[project]
+name = "termprep"
+version = "0.5.0"
+description = "\u8bd1\u524d\u672f\u8bed\u51c6\u5907\u5de5\u5177 - \u81ea\u52a8\u641c\u7d22\u5173\u8054\u8bcd\u6c47\uff0c\u8f85\u52a9\u7ffb\u8bd1\u51c6\u5907\u5de5\u4f5c"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "rich>=13.0",
+    "click>=8.1",
+    "jieba>=0.42",
+    "openpyxl>=3.1",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "openai>=1.0",
+    "yake>=0.4",
+    "deep-translator>=1.11",
+    "PyMuPDF>=1.23",
+    "PyPDF2>=3.0",
+    "python-docx>=1.1",
+    "pytesseract>=0.3",
+    "Pillow>=10.0",
+    "olefile>=0.47",
+    "python-multipart>=0.0.9",
+    "gunicorn>=21.0",
+    "chromadb>=0.5.0",
+    "sentence-transformers>=2.3.0",
+]
+
+[project.scripts]
+termprep = "termprep.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["termprep", "termprep.*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

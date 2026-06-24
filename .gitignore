@@ -1,0 +1,61 @@
+# Build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+*.env
+
+# Runtime generated files (do not upload to HF Space)
+data/*
+!data/.gitkeep
+reports/*
+!reports/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+*-report.md
+*-glossary.json
+free-report.md
+test-report.md
+test-glossary.json
+
+# Logs
+*.log
+
+# New architecture
+backend/.venv/
+backend/app/static/
+backend/alembic/versions/*.py
+!backend/alembic/versions/.gitkeep
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Docker
+postgres_data/
+termprep_dev.db

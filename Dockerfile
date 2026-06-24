@@ -1,0 +1,25 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy project files
+COPY pyproject.toml requirements.txt ./
+COPY termprep/ termprep/
+COPY web/ web/
+COPY web_entry.py .
+
+# Debug: list all files in termprep/ to verify upload completeness
+RUN echo "=== termprep/ contents ===" && ls -la termprep/ && echo "=== termprep/web/ contents ===" && ls -la termprep/web/
+
+# Install dependencies (include gunicorn for production)
+RUN pip install --no-cache-dir -e . gunicorn
+
+# Expose port
+EXPOSE 7860
+
+# Start server
+CMD ["gunicorn", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:7860", "web_entry:app"]

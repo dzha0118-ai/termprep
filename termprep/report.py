@@ -1,0 +1,127 @@
+"""Pre-translation preparation report generator."""
+
+from datetime import datetime
+from typing import Any
+
+from termprep.analyzer import AnalysisResult
+from termprep.extractor import TermEntry
+
+
+def generate_report(
+    analysis: AnalysisResult | None = None,
+    terms: list[TermEntry] | None = None,
+    glossary: list[dict] | None = None,
+    full_translation: str = "",
+    db_stats: dict[str, Any] | None = None,
+    project_name: str = "Untitled Project",
+    source_file: str = "",
+    notes: str = "",
+) -> str:
+    """Generate a comprehensive pre-translation report in Markdown."""
+
+    lines = []
+    lines.append(f"# Pre-Translation Report: {project_name}")
+    lines.append("")
+    lines.append(f"*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}*")
+    lines.append("")
+    lines.append("---")
+
+    # 1. Project Overview
+    lines.append("## 1. Project Overview")
+    if source_file:
+        lines.append(f"- **Source File:** `{source_file}`")
+    lines.append(f"- **Project:** {project_name}")
+    if notes:
+        lines.append(f"- **Notes:** {notes}")
+
+    # 2. Text Analysis
+    if analysis:
+        lines.append("")
+        lines.append("## 2. Text Analysis")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        lines.append(f"| Language | {analysis.lang} |")
+        lines.append(f"| Total Characters | {analysis.chars_total} |")
+        lines.append(f"| Characters (no spaces) | {analysis.chars_no_space} |")
+        lines.append(f"| Chinese Words (est.) | {analysis.words_cn} |")
+        lines.append(f"| English Words | {analysis.words_en} |")
+        lines.append(f"| Paragraphs | {analysis.paragraphs} |")
+        lines.append(f"| Sentences | {analysis.sentences} |")
+        lines.append(f"| **Domain** | **{analysis.domain}** |")
+        lines.append(f"| **Difficulty** | **{analysis.difficulty}** |")
+
+    # 3. Bilingual Glossary (NEW - most important section)
+    if glossary:
+        lines.append("")
+        lines.append(f"## 3. Bilingual Glossary ({len(glossary)} terms)")
+        lines.append("")
+        is_cn = analysis and analysis.lang in ("zh", "mixed")
+        src_label = "Source (中文)" if is_cn else "Source (English)"
+        tgt_label = "Translation (English)" if is_cn else "Translation (中文)"
+        lines.append(f"| # | {src_label} | {tgt_label} | Freq | Context |")
+        lines.append("|---|---|---|---|---|")
+        for i, g in enumerate(glossary[:50], 1):
+            ctx = g.get("context", "")[:60].replace("|", "/").replace("\n", " ")
+            lines.append(f"| {i} | **{g['term']}** | {g.get('translation','-')} | {g.get('freq','')} | {ctx} |")
+
+    # 4. Full Text Translation (NEW)
+    if full_translation:
+        lines.append("")
+        lines.append("## 4. Full Text Translation")
+        lines.append("")
+        lines.append(f"{full_translation}")
+
+    # 5. Extracted Terms (raw)
+    if terms:
+        lines.append("")
+        lines.append(f"## 5. Extracted Terms (Top {len(terms)})")
+        lines.append("")
+        lines.append("| # | Term | Freq | Score | Type |")
+        lines.append("|---|------|------|-------|------|")
+        for i, t in enumerate(terms[:30], 1):
+            lines.append(f"| {i} | {t.term} | {t.frequency} | {t.score:.2f} | {t.word_type} |")
+
+    # 6. Termbase
+    if db_stats:
+        lines.append("")
+        lines.append(f"## 6. Termbase: {db_stats.get('name', 'terms')}")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|--------|-------|")
+        lines.append(f"| Total Terms | {db_stats.get('total_terms', 0)} |")
+        lines.append(f"| Confirmed | {db_stats.get('confirmed', 0)} |")
+        lines.append(f"| Domain | {db_stats.get('domain', '-')} |")
+
+    # 7. Recommendations
+    lines.append("")
+    lines.append("## 7. Recommendations")
+    recs = []
+    if analysis:
+        if analysis.difficulty == "hard":
+            recs.append("- **Allow extra time.** This text is rated **hard**.")
+        if analysis.domain not in ("general", ""):
+            recs.append(f"- **Domain:** {analysis.domain} — prepare domain-specific reference materials.")
+        if analysis.lang == "mixed":
+            recs.append("- **Mixed language:** verify translations in both directions.")
+    if glossary:
+        untranslated = [g for g in glossary if not g.get("translation")]
+        if untranslated:
+            recs.append(f"- **{len(untranslated)} terms need manual translation:** {', '.join(g['term'] for g in untranslated[:5])}")
+        high_freq = [g for g in glossary if g.get("freq", 0) > 5]
+        if high_freq:
+            recs.append(f"- **High-frequency terms to prioritize:** {', '.join(g['term'] for g in high_freq[:5])}")
+    if not recs:
+        recs.append("- No specific recommendations. Proceed with standard preparation.")
+
+    lines.extend(recs)
+    lines.append("")
+    lines.append("---")
+    lines.append("*Report generated by TermPrep v0.5*")
+
+    return "\n".join(lines)
+
+
+def save_report(report: str, output_path: str) -> None:
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(report)
