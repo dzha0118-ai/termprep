@@ -404,6 +404,7 @@ def create_app() -> FastAPI:
                     "target_lang": trans.target_lang,
                     "domain": domain,
                     "style_used": "AI 风格化翻译",
+                    "glossary": glossary.model_dump(),
                     "segments": [
                         {"index": s.index, "source": s.source, "target": s.target, "highlights": s.highlights}
                         for s in trans.segments

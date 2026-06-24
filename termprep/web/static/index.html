@@ -1521,6 +1521,18 @@ async function doAnalyze() {
       var upRes = await fetch('/api/translate/upload', {method:'POST', headers: upHeaders, body:form});
       if (!upRes.ok) throw new Error((await upRes.text()) || '上传失败');
       data = await upRes.json();
+      // 新增：如果后端返回了 glossary，用 AI 提取的术语重新构建高亮（确保术语圈对）
+      if (data.glossary && data.glossary.terms && data.glossary.terms.length) {
+        var glossaryTerms = data.glossary.terms;
+        data.segments = data.segments.map(function(seg) {
+          return {
+            index: seg.index,
+            source: seg.source,
+            target: seg.target,
+            highlights: buildHighlights(seg.source, glossaryTerms)
+          };
+        });
+      }
       // Run analysis on the source text from segments
       if (data.segments && data.segments.length) {
         var srcText = data.segments.map(function(s){return s.source;}).join('\n');
@@ -1550,6 +1562,9 @@ async function doAnalyze() {
   } finally {
     spinner.classList.remove('show');
     if (window.petSetThinking) window.petSetThinking(false);
+    // 修复：上传完成后清空 fileInput，以便下次选择同一个文件时能重新触发 onchange
+    document.getElementById('file-input').value = '';
+    document.getElementById('file-name').style.display = 'none';
   }
 }
 
@@ -1641,7 +1656,8 @@ function buildHighlights(sourceText, terms) {
   terms.forEach(function(t){
     var word = t.source_term;
     if (!word) return;
-    var regex = new RegExp('\\\\b' + escRegex(word) + '\\\\b', 'gi');
+    var hasCJK = /[\u4e00-\u9fff\u3000-\u303f\u3400-\u4dbf\uf900-\ufaff]/.test(word);
+    var regex = hasCJK ? new RegExp(escRegex(word), 'gi') : new RegExp('\\\\b' + escRegex(word) + '\\\\b', 'gi');
     var match;
     while ((match = regex.exec(sourceText)) !== null) {
       hls.push({
@@ -2008,7 +2024,9 @@ function handleFile(e) {
   var nameEl = document.getElementById('file-name');
   nameEl.textContent = '已选择: ' + file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
   nameEl.style.display = 'block';
-  document.getElementById('trans-text').value = '';
+  // 修复：清空文本输入框（使用正确的元素ID）
+  var textarea = document.getElementById('analyze-text');
+  if (textarea) textarea.value = '';
 }
 
 // Upload zone drag-and-drop
