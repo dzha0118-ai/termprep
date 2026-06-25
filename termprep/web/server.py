@@ -382,6 +382,7 @@ def create_app() -> FastAPI:
         use_rag: bool = Form(False),
     ):
         import tempfile
+        import traceback as _tb
         try:
             suffix = os.path.splitext(file.filename or ".txt")[1]
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -397,33 +398,59 @@ def create_app() -> FastAPI:
 
             # Use AI if client config is provided, else default free engine
             client_settings = _ai_settings_from_request(request)
-            if client_settings.get("ai_api_key"):
-                from termprep.agents.orchestrator import AgentOrchestrator
-                from termprep.agents.schemas import Glossary
-                orch = AgentOrchestrator(client_settings)
-                glossary = orch.run_term_agent(text=text, project_name="upload", top_n=20)
-                trans = orch.run_translation_agent(
-                    text=text,
-                    glossary=glossary,
-                    domain=domain,
-                    engine="ai",
-                    use_rag=use_rag,
-                )
-                return {
-                    "filename": file.filename,
-                    "translated": trans.translated_text,
-                    "source_lang": trans.source_lang,
-                    "target_lang": trans.target_lang,
-                    "domain": domain,
-                    "style_used": "AI 风格化翻译",
-                    "glossary": glossary.model_dump(),
-                    "segments": [
-                        {"index": s.index, "source": s.source, "target": s.target, "highlights": s.highlights}
-                        for s in trans.segments
-                    ],
-                    "errors": trans.errors,
-                }
+            ai_api_key = client_settings.get("ai_api_key")
+            
+            if ai_api_key:
+                try:
+                    from termprep.agents.orchestrator import AgentOrchestrator
+                    from termprep.agents.schemas import Glossary
+                    orch = AgentOrchestrator(client_settings)
+                    glossary = orch.run_term_agent(text=text, project_name="upload", top_n=20)
+                    trans = orch.run_translation_agent(
+                        text=text,
+                        glossary=glossary,
+                        domain=domain,
+                        engine="ai",
+                        use_rag=use_rag,
+                    )
+                    return {
+                        "filename": file.filename,
+                        "translated": trans.translated_text,
+                        "source_lang": trans.source_lang,
+                        "target_lang": trans.target_lang,
+                        "domain": domain,
+                        "style_used": "AI 风格化翻译",
+                        "glossary": glossary.model_dump(),
+                        "segments": [
+                            {"index": s.index, "source": s.source, "target": s.target, "highlights": s.highlights}
+                            for s in trans.segments
+                        ],
+                        "errors": trans.errors,
+                    }
+                except Exception as ai_err:
+                    # AI 路径失败，降级到免费引擎
+                    error_detail = f"AI 翻译失败: {type(ai_err).__name__}: {ai_err}"
+                    # 降级到免费引擎
+                    result = translate_text(
+                        text=text,
+                        domain=domain,
+                        target_lang=target_lang,
+                    )
+                    return {
+                        "filename": file.filename,
+                        "translated": result.translated_text,
+                        "source_lang": result.source_lang,
+                        "target_lang": result.target_lang,
+                        "domain": result.domain,
+                        "style_used": result.style_used + " (AI 降级)",
+                        "segments": [
+                            {"index": s.index, "source": s.source, "target": s.target, "highlights": s.highlights}
+                            for s in result.segments
+                        ],
+                        "errors": result.errors + [error_detail],
+                    }
 
+            # 免费引擎路径
             result = translate_text(
                 text=text,
                 domain=domain,
@@ -437,12 +464,7 @@ def create_app() -> FastAPI:
                 "domain": result.domain,
                 "style_used": result.style_used,
                 "segments": [
-                    {
-                        "index": s.index,
-                        "source": s.source,
-                        "target": s.target,
-                        "highlights": s.highlights,
-                    }
+                    {"index": s.index, "source": s.source, "target": s.target, "highlights": s.highlights}
                     for s in result.segments
                 ],
                 "errors": result.errors,
@@ -450,7 +472,8 @@ def create_app() -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e))
         except Exception as e:
-            raise HTTPException(500, str(e))
+            tb_str = _tb.format_exc()
+            raise HTTPException(500, f"服务器内部错误: {type(e).__name__}: {e}\n\n{tb_str}")
 
     @app.post("/api/termbase/lookup")
     def api_termbase_lookup(data: SearchIn):
