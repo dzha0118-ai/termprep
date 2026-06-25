@@ -470,10 +470,17 @@ def create_app() -> FastAPI:
                 "errors": result.errors,
             }
         except ValueError as e:
-            raise HTTPException(400, str(e))
+            return {"error": str(e), "error_type": "ValueError", "status": 400}
         except Exception as e:
             tb_str = _tb.format_exc()
-            raise HTTPException(500, f"服务器内部错误: {type(e).__name__}: {e}\n\n{tb_str}")
+            # 返回 200 状态码但包含错误信息，避免 HF 代理层替换为通用 500 页面
+            return {
+                "error": f"服务器内部错误: {type(e).__name__}: {e}",
+                "traceback": tb_str,
+                "error_type": type(e).__name__,
+                "status": 500,
+                "filename": getattr(file, 'filename', 'unknown'),
+            }
 
     @app.post("/api/termbase/lookup")
     def api_termbase_lookup(data: SearchIn):

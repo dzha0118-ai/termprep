@@ -1538,13 +1538,13 @@ async function doAnalyze() {
         throw new Error('网络请求失败: ' + (netErr.message || netErr));
       }
       console.log('[DEBUG] Response status:', upRes.status, upRes.statusText);
-      if (!upRes.ok) {
-        var errText = await upRes.text();
-        console.error('[DEBUG] Server error:', upRes.status, errText);
-        throw new Error('上传失败 (' + upRes.status + '): ' + errText);
-      }
-      data = await upRes.json();
-      console.log('[DEBUG] Response data:', data);
+      var responseText = await upRes.text();
+      console.log('[DEBUG] Raw response (first 500 chars):', responseText.substring(0, 500));
+      var data;
+      try { data = JSON.parse(responseText); } catch (parseErr) { console.error('[DEBUG] JSON parse failed:', parseErr); throw new Error('服务器返回非 JSON: ' + responseText.substring(0, 200)); }
+      console.log('[DEBUG] Parsed data:', data);
+      // 检查后端是否返回了错误信息（即使 HTTP 状态码是 200）
+      if (data.error) { console.error('[DEBUG] Server returned error:', data.error); throw new Error(data.error + (data.traceback ? '\n' + data.traceback : '')); }
       if (data.glossary && data.glossary.terms && data.glossary.terms.length) {
         var glossaryTerms = data.glossary.terms;
         data.segments = data.segments.map(function(seg) {
