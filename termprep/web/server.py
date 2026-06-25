@@ -163,6 +163,18 @@ class AgentTaskStatusIn(BaseModel):
 def create_app() -> FastAPI:
     app = FastAPI(title="TermPrep", version="0.5")
 
+    # RAG seed data initialization (lazy, no-op if ChromaDB unavailable)
+    @app.on_event("startup")
+    async def _init_rag_seed():
+        try:
+            from termprep.rag.seed_initializer import init_rag_seed_data
+            result = init_rag_seed_data()
+            if result.get("status") == "seeded":
+                import logging
+                logging.getLogger("termprep").info("RAG seeded: %s", result)
+        except Exception:
+            pass  # RAG dependencies may not be installed
+
     # CORS — allow HF Space, GitHub Pages and local dev
     # In production (HF Space), allow all origins since the Space URL is dynamic
     _origins = [
@@ -707,6 +719,95 @@ def create_app() -> FastAPI:
             "settings_base_url": termprep_settings.ai_base_url,
             "settings_key_set": bool(termprep_settings.ai_api_key),
         }
+
+    @app.get("/api/rag/stats")
+    def api_rag_stats():
+        """Get RAG vector store statistics."""
+        try:
+            from termprep.rag.vector_store import get_vector_store
+            store = get_vector_store()
+            if not store.is_available:
+                return {
+                    "available": False,
+                    "reason": "chromadb not installed",
+                    "counts": {"terms": 0, "corpus": 0, "documents": 0},
+                }
+            counts = store.count()
+            return {"available": True, "counts": counts}
+        except Exception as e:
+            return {
+                "available": False,
+                "reason": str(e),
+                "counts": {"terms": 0, "corpus": 0, "documents": 0},
+            }
+
+    @app.post("/api/rag/upload")
+    async def api_rag_upload(
+        request: Request,
+        file: UploadFile = File(...),
+        domain: str = Form("general"),
+    ):
+        """Upload a medical document and add it to the RAG vector store."""
+        import tempfile
+        import uuid
+
+        try:
+            suffix = os.path.splitext(file.filename or ".txt")[1]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                content = await file.read()
+                tmp.write(content)
+                tmp_path = tmp.name
+
+            text = parse_file(tmp_path)
+            os.unlink(tmp_path)
+
+            if not text.strip():
+                raise HTTPException(400, "文件内容为空")
+
+            from termprep.rag.chunker import MedicalChunker
+            from termprep.rag.vector_store import get_vector_store
+            from termprep.rag.medical_schema import MedicalDomain, Document, CorpusChunk
+
+            try:
+                med_domain = MedicalDomain(domain.lower())
+            except ValueError:
+                med_domain = MedicalDomain.GENERAL
+
+            chunker = MedicalChunker()
+            chunks = list(chunker.chunk_document(text, domain=med_domain))
+
+            store = get_vector_store()
+            if not store.is_available:
+                raise HTTPException(503, "RAG vector store not available")
+
+            doc_id = str(uuid.uuid4())
+            doc = Document(
+                id=doc_id,
+                title=file.filename or "untitled",
+                domain=med_domain,
+                language="mixed",
+                chunk_count=len(chunks),
+            )
+            store.add_document(doc)
+
+            for chunk in chunks:
+                chunk.source_document = doc_id
+            store.add_corpus_chunks(chunks)
+
+            counts = store.count()
+            return {
+                "document_id": doc_id,
+                "filename": file.filename,
+                "domain": med_domain.value,
+                "chunks_added": len(chunks),
+                "total_corpus": counts.get("corpus", 0),
+                "total_terms": counts.get("terms", 0),
+                "total_documents": counts.get("documents", 0),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"RAG upload failed: {e}")
 
     return app
 

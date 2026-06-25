@@ -33,6 +33,7 @@ Thumbs.db
 # Runtime generated files (do not upload to HF Space)
 data/*
 !data/.gitkeep
+!data/medical_seed_terms.json
 reports/*
 !reports/.gitkeep
 *.db
