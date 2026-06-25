@@ -999,7 +999,7 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
     <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
       <div class="upload-icon">📄</div>
       <div>拖拽文件到此处，或点击选择</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">支持 .txt .docx .xlsx .pdf（上传后自动分析翻译）</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">支持 .txt .doc .docx .xlsx .pdf（上传后自动分析翻译）</div>
     </div>
     <input type="file" id="file-input" accept=".txt,.doc,.docx,.xlsx,.pdf" multiple style="display:none" onchange="handleFile(event)">
     <div id="file-name" style="font-size:13px;color:var(--text-muted);margin-top:8px;display:none"></div>
@@ -1510,12 +1510,12 @@ async function doAnalyze() {
 
     if (hasFile) {
       // Upload file → get translation with analysis built-in
-      // Pass AI config via headers if enabled
+      console.log('[DEBUG] File upload mode, files:', fileInput.files.length, 'names:', Array.from(fileInput.files).map(f=>f.name));
       var upHeaders = {};
       Object.assign(upHeaders, getAIHeaders());
       var form = new FormData();
-      // 修复：支持多文件选择，但只上传第一个文件（后端当前只支持单文件）
       var uploadFile = fileInput.files[0];
+      console.log('[DEBUG] Uploading file:', uploadFile.name, 'size:', uploadFile.size, 'type:', uploadFile.type);
       if (!uploadFile) {
         toast('请选择文件');
         spinner.classList.remove('show');
@@ -1525,11 +1525,26 @@ async function doAnalyze() {
       form.append('file', uploadFile);
       form.append('domain', domain);
       form.append('target_lang', target);
-      form.append('use_rag', document.getElementById('trans-rag').checked ? 'true' : 'false');
-      var upRes = await fetch('/api/translate/upload', {method:'POST', headers: upHeaders, body:form});
-      if (!upRes.ok) throw new Error((await upRes.text()) || '上传失败');
+      var useRag = false;
+      var ragEl = document.getElementById('trans-rag');
+      if (ragEl) { useRag = ragEl.checked; }
+      form.append('use_rag', useRag ? 'true' : 'false');
+      console.log('[DEBUG] Sending fetch to /api/translate/upload, use_rag=', useRag);
+      var upRes;
+      try {
+        upRes = await fetch('/api/translate/upload', {method:'POST', headers: upHeaders, body:form});
+      } catch (netErr) {
+        console.error('[DEBUG] Fetch failed:', netErr);
+        throw new Error('网络请求失败: ' + (netErr.message || netErr));
+      }
+      console.log('[DEBUG] Response status:', upRes.status, upRes.statusText);
+      if (!upRes.ok) {
+        var errText = await upRes.text();
+        console.error('[DEBUG] Server error:', upRes.status, errText);
+        throw new Error('上传失败 (' + upRes.status + '): ' + errText);
+      }
       data = await upRes.json();
-      // 新增：如果后端返回了 glossary，用 AI 提取的术语重新构建高亮（确保术语圈对）
+      console.log('[DEBUG] Response data:', data);
       if (data.glossary && data.glossary.terms && data.glossary.terms.length) {
         var glossaryTerms = data.glossary.terms;
         data.segments = data.segments.map(function(seg) {
@@ -1566,7 +1581,9 @@ async function doAnalyze() {
       transCard.scrollIntoView({behavior:'smooth'});
     }
   } catch(e) {
-    toast('失败: ' + e.message);
+    console.error('[DEBUG] doAnalyze error:', e);
+    var errMsg = e && e.message ? e.message : String(e);
+    toast('失败: ' + errMsg);
   } finally {
     spinner.classList.remove('show');
     if (window.petSetThinking) window.petSetThinking(false);
