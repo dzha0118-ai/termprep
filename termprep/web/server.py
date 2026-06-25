@@ -374,17 +374,22 @@ def create_app() -> FastAPI:
             raise HTTPException(500, str(e))
 
     @app.post("/api/translate/upload")
-    async def api_translate_upload(
-        request: Request,
-        file: UploadFile = File(...),
-        domain: str = Form("general"),
-        target_lang: str = Form("auto"),
-        use_rag: bool = Form(False),
-    ):
+    async def api_translate_upload(request: Request):
         import tempfile
         import traceback as _tb
         try:
-            suffix = os.path.splitext(file.filename or ".txt")[1]
+            # 手动解析 multipart 表单，绕过 FastAPI UploadFile 参数解析问题
+            form = await request.form()
+            file = form.get("file")
+            if not file:
+                return JSONResponse(status_code=400, content={"error": "缺少 file 字段"})
+
+            domain = str(form.get("domain", "general"))
+            target_lang = str(form.get("target_lang", "auto"))
+            use_rag_str = str(form.get("use_rag", "false")).lower()
+            use_rag = use_rag_str in ("true", "1", "yes", "on")
+
+            suffix = os.path.splitext(getattr(file, 'filename', 'file.txt') or ".txt")[1]
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 content = await file.read()
                 tmp.write(content)
@@ -394,9 +399,9 @@ def create_app() -> FastAPI:
             os.unlink(tmp_path)
 
             if not text.strip():
-                raise HTTPException(400, "文件内容为空")
+                return JSONResponse(status_code=400, content={"error": "文件内容为空"})
 
-            # Use AI if client config is provided, else default free engine
+            # Use AI if client config is provided
             client_settings = _ai_settings_from_request(request)
             ai_api_key = client_settings.get("ai_api_key")
             
@@ -414,7 +419,7 @@ def create_app() -> FastAPI:
                         use_rag=use_rag,
                     )
                     return {
-                        "filename": file.filename,
+                        "filename": getattr(file, 'filename', 'unknown'),
                         "translated": trans.translated_text,
                         "source_lang": trans.source_lang,
                         "target_lang": trans.target_lang,
@@ -428,16 +433,14 @@ def create_app() -> FastAPI:
                         "errors": trans.errors,
                     }
                 except Exception as ai_err:
-                    # AI 路径失败，降级到免费引擎
                     error_detail = f"AI 翻译失败: {type(ai_err).__name__}: {ai_err}"
-                    # 降级到免费引擎
                     result = translate_text(
                         text=text,
                         domain=domain,
                         target_lang=target_lang,
                     )
                     return {
-                        "filename": file.filename,
+                        "filename": getattr(file, 'filename', 'unknown'),
                         "translated": result.translated_text,
                         "source_lang": result.source_lang,
                         "target_lang": result.target_lang,
@@ -457,7 +460,7 @@ def create_app() -> FastAPI:
                 target_lang=target_lang,
             )
             return {
-                "filename": file.filename,
+                "filename": getattr(file, 'filename', 'unknown'),
                 "translated": result.translated_text,
                 "source_lang": result.source_lang,
                 "target_lang": result.target_lang,
@@ -469,18 +472,14 @@ def create_app() -> FastAPI:
                 ],
                 "errors": result.errors,
             }
-        except ValueError as e:
-            return {"error": str(e), "error_type": "ValueError", "status": 400}
         except Exception as e:
             tb_str = _tb.format_exc()
-            # 返回 200 状态码但包含错误信息，避免 HF 代理层替换为通用 500 页面
-            return {
+            return JSONResponse(status_code=200, content={
                 "error": f"服务器内部错误: {type(e).__name__}: {e}",
                 "traceback": tb_str,
                 "error_type": type(e).__name__,
                 "status": 500,
-                "filename": getattr(file, 'filename', 'unknown'),
-            }
+            })
 
     @app.post("/api/termbase/lookup")
     def api_termbase_lookup(data: SearchIn):
