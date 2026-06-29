@@ -64,6 +64,24 @@ class TranslationService:
             use_rag=use_rag,
         )
 
+        # Translation Memory injection: find similar past translations
+        try:
+            from termprep.tm import search as tm_search
+            tm_matches = tm_search(text, source_lang, target_lang, domain, limit=3)
+            if tm_matches:
+                tm_hints = []
+                for m in tm_matches:
+                    if m.get("score", 0) >= 0.7:
+                        tm_hints.append(f'  "{m["source"]}" → "{m["target"]}"')
+                if tm_hints:
+                    current_glossary = request.glossary or []
+                    request.glossary = current_glossary + [
+                        {"term": m["source"], "translation": m["target"], "confidence": "high", "source": "tm"}
+                        for m in tm_matches if m.get("score", 0) >= 0.7
+                    ]
+        except Exception:
+            pass
+
         # RAG context injection
         rag_metadata = {"exact_terms": 0, "fuzzy_terms": 0, "corpus_chunks": 0}
         if use_rag:

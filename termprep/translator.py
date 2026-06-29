@@ -74,38 +74,37 @@ def parse_file(filepath: str) -> str:
 def _parse_txt(fp): return open(fp, encoding="utf-8").read()
 
 def _parse_doc(fp):
-    """Parse .doc (Word 97-2003 binary format) via olefile + antiword/catdoc fallback."""
-    # Try antiword (Linux) or catdoc first
+    """Parse .doc (Word 97-2003 binary format) via olefile first, then antiword/catdoc fallback."""
+    # Step 1: try olefile (pure Python, never crashes)
+    try:
+        import olefile
+        ole = olefile.OleFileIO(fp)
+        if ole.exists('WordDocument'):
+            data = ole.openstream('WordDocument').read()
+            text = data.decode('utf-16-le', errors='ignore')
+            lines = re.findall(r'[\x20-\x7E\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]{4,}', text)
+            if lines:
+                result = '\n'.join(l.strip() for l in lines if l.strip())
+                if len(result) > 20:
+                    ole.close()
+                    return result
+        ole.close()
+    except ImportError:
+        pass
+    except Exception as e:
+        _log.debug(f"olefile failed: {e}")
+
+    # Step 2: try antiword/catdoc (external tools, may crash on some files)
     import subprocess
     for cmd in [['antiword', fp], ['catdoc', fp]]:
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             if result.returncode == 0 and result.stdout.strip():
                 return result.stdout
-        except Exception as e: _log.debug(f"non-critical: {e}")
+        except Exception as e:
+            _log.debug(f"non-critical: {e}")
 
-    # Try olefile for manual text extraction
-    try:
-        import olefile
-        ole = olefile.OleFileIO(fp)
-        # Read WordDocument stream
-        if ole.exists('WordDocument'):
-            data = ole.openstream('WordDocument').read()
-            # Extract readable text (UTF-16LE encoded)
-            text = data.decode('utf-16-le', errors='ignore')
-            # Filter by ignoring non-printable chars
-            import re
-            lines = re.findall(r'[\x20-\x7E\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]{4,}', text)
-            if lines:
-                result = '\n'.join(l.strip() for l in lines if l.strip())
-                if len(result) > 20:
-                    return result
-        ole.close()
-    except ImportError:
-        pass
-    except Exception as e: _log.debug(f"non-critical: {e}")
-
-    raise ValueError("无法解析 .doc 文件。建议用 Word 另存为 .docx 格式后上传。")
+    raise ValueError("无法解析 .doc 文件。服务器无法提取内容。建议用 Word 另存为 .docx 或 .txt 格式后上传。")
 
 
 def _parse_docx(fp):
@@ -166,6 +165,7 @@ def _parse_docx(fp):
         ocr_parts = _ocr_from_docx(fp)
         if ocr_parts:
             return "\n\n".join(ocr_parts)
+        raise ValueError("该 .docx 只包含图片/扫描内容，且 OCR 不可用（未安装 Tesseract 或缺少 chi_sim/eng 语言包），无法提取文本。")
 
     if not texts:
         raise ValueError("无法从文件中提取文本")
@@ -263,7 +263,7 @@ def _parse_pdf(fp):
     except Exception as e:
         _log.debug(f"non-critical: {e}")
 
-    raise ImportError("Unable to extract text from PDF (try PyMuPDF or PyPDF2)")
+    raise ImportError("无法从 PDF 提取文本。普通文字 PDF 请确认未损坏；扫描版/图片版 PDF 需要 OCR，但服务器未安装 Tesseract 或缺少语言包（chi_sim+eng）。")
 
 
 # ── Translation ──
@@ -685,7 +685,7 @@ def _split_blocks(text: str) -> list[dict]:
     return blocks
 
 
-def translate_text_mixed(text: str, domain: str = "general", engine: str | None = None, settings: dict | None = None, use_rag: bool = False) -> TranslationResult:
+def translate_text_mixed(text: str, domain: str = "general", engine: str | None = None, settings: dict | None = None, use_rag: bool = False, glossary: list[dict] | None = None) -> TranslationResult:
     """Translate a mixed Chinese-English text paragraph by paragraph.
     Chinese paragraphs → English; English paragraphs → Chinese.
     Neutral blocks (numbers, symbols) are preserved.
@@ -696,6 +696,7 @@ def translate_text_mixed(text: str, domain: str = "general", engine: str | None 
         engine: Preferred engine ("ai", "google", "youdao", or None for auto).
         settings: Optional settings dict to override default AI config.
         use_rag: Enable RAG retrieval for medical domain context.
+        glossary: Optional bilingual glossary for term consistency injection.
 
     Returns:
         TranslationResult with bilingual segments.
@@ -749,12 +750,10 @@ def translate_text_mixed(text: str, domain: str = "general", engine: str | None 
         tgt = ""
 
         if lang == "neutral":
-            # Numbers, symbols, math — keep as is
             tgt = src
         elif lang == "zh":
-            # CN → EN
             if ai_available and svc:
-                r = svc.translate(src, source_lang="zh", target_lang="en", domain=detected_domain, engine=engine, use_rag=use_rag)
+                r = svc.translate(src, source_lang="zh", target_lang="en", domain=detected_domain, engine=engine, glossary=glossary, use_rag=use_rag)
                 if r.rag_metadata:
                     for key in rag_metadata:
                         rag_metadata[key] = max(rag_metadata[key], r.rag_metadata.get(key, 0))
@@ -762,9 +761,8 @@ def translate_text_mixed(text: str, domain: str = "general", engine: str | None 
             else:
                 tgt = _google_translate(src, "zh-CN", "en") or src
         elif lang == "en":
-            # EN → ZH
             if ai_available and svc:
-                r = svc.translate(src, source_lang="en", target_lang="zh", domain=detected_domain, engine=engine, use_rag=use_rag)
+                r = svc.translate(src, source_lang="en", target_lang="zh", domain=detected_domain, engine=engine, glossary=glossary, use_rag=use_rag)
                 if r.rag_metadata:
                     for key in rag_metadata:
                         rag_metadata[key] = max(rag_metadata[key], r.rag_metadata.get(key, 0))
@@ -772,9 +770,8 @@ def translate_text_mixed(text: str, domain: str = "general", engine: str | None 
             else:
                 tgt = _google_translate(src, "en", "zh-CN") or src
         else:
-            # mixed or unknown — try AI full block, else keep
             if ai_available and svc:
-                r = svc.translate(src, source_lang="auto", target_lang="auto", domain=detected_domain, engine=engine, use_rag=use_rag)
+                r = svc.translate(src, source_lang="auto", target_lang="auto", domain=detected_domain, engine=engine, glossary=glossary, use_rag=use_rag)
                 if r.rag_metadata:
                     for key in rag_metadata:
                         rag_metadata[key] = max(rag_metadata[key], r.rag_metadata.get(key, 0))
@@ -792,4 +789,14 @@ def translate_text_mixed(text: str, domain: str = "general", engine: str | None 
     result.translated_text = "\n\n".join(translated_blocks)
     result.segments = segments
     result.rag_metadata = rag_metadata
+
+    # Auto-store to translation memory
+    try:
+        from termprep.tm import store as tm_store
+        for seg in segments:
+            if seg.source and seg.target and len(seg.source) > 5:
+                tm_store(seg.source, seg.target, detected_domain, detected_domain, detected_domain)
+    except Exception:
+        pass
+
     return result

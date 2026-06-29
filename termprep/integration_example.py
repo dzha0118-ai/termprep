@@ -157,8 +157,9 @@ def example_pipeline():
     service.register(ReportStep())
 
     # Optional: add event listener for progress
-    def on_event(obs: str, ctx: StepContext):
-        print(f"[pipeline] {obs}")
+    def on_event(event_type: str, obs: str, ctx: StepContext):
+        """pipeline_service callback: event_type, observation, context"""
+        print(f"[pipeline] {event_type}: {obs}")
 
     service.on_event(on_event)
 

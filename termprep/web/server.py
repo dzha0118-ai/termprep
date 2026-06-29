@@ -1,12 +1,16 @@
 """TermPrep Web Server — FastAPI backend."""
 
-import os
-import sys
+import asyncio
 import json
+import os
+import queue
+import sys
+import time
+import uuid
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Any, Optional
@@ -35,8 +39,32 @@ STATIC_DIR = os.path.join(PROJ_ROOT, "web", "static")
 from termprep.agents.orchestrator import AgentOrchestrator
 from termprep.agents.schemas import TranslationRequest as AgentTranslationRequest
 from termprep.services.translation_service import TranslationService
+from termprep.services.pipeline_service import PipelineService, list_templates
+from termprep.services.translation_analysis import analyze_translation_difficulty
 from termprep.config import settings as termprep_settings
 import termprep.engines  # trigger engine registration (ai, google, youdao)
+
+
+# ── SSE event store (in-memory, per-worker) ──
+# Keyed by pipeline_id, each entry is a queue.Queue of SSE event dicts.
+_pipeline_events: dict[str, queue.Queue] = {}
+_PIPELINE_EVENT_TTL = 3600  # 1 hour
+
+
+def _push_pipeline_event(pipeline_id: str, event_type: str, data: dict[str, Any]) -> None:
+    """Push an SSE event to the pipeline event queue."""
+    q = _pipeline_events.get(pipeline_id)
+    if q is not None:
+        q.put_nowait({"event": event_type, "data": data})
+
+
+def _clean_stale_event_queues() -> None:
+    """Remove stale event queues (called periodically)."""
+    now = time.time()
+    stale = [pid for pid, q in _pipeline_events.items()
+             if hasattr(q, '_created_at') and now - getattr(q, '_created_at', 0) > _PIPELINE_EVENT_TTL]
+    for pid in stale:
+        _pipeline_events.pop(pid, None)
 
 
 # ── Client-supplied AI config helper ──
@@ -103,6 +131,24 @@ class PipelineIn(BaseModel):
     ai_engine: Optional[str] = None
     translate_mode: str = "auto"  # auto | mixed | zh2en | en2zh
     use_rag: bool = False
+
+class PipelineRunStep(BaseModel):
+    name: str
+    type: str = "builtin"
+    label: str = ""
+    config: dict[str, Any] = {}
+
+class PipelineRunIn(BaseModel):
+    text: str
+    project_name: str = "Untitled"
+    template: str = "full-pipeline"
+    steps: list[PipelineRunStep] | None = None
+    top_n: int = 30
+    use_ai: bool = True
+    ai_engine: Optional[str] = None
+    translate_mode: str = "auto"
+    use_rag: bool = False
+    stream: bool = True
 
 class AssociateIn(BaseModel):
     term: str
@@ -373,46 +419,79 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(500, str(e))
 
-    @app.post("/api/translate/upload")
-    async def api_translate_upload(request: Request):
-        import tempfile
-        import traceback as _tb
+    @app.post("/api/translate/upload-test")
+    async def api_translate_upload_test(request: Request):
+        """Minimal test endpoint for multipart upload diagnosis."""
         try:
-            # 手动解析 multipart 表单，绕过 FastAPI UploadFile 参数解析问题
             form = await request.form()
             file = form.get("file")
             if not file:
-                return JSONResponse(status_code=400, content={"error": "缺少 file 字段"})
+                return {"error": "no file field", "form_keys": list(form.keys())}
+            content = await file.read()
+            return {
+                "filename": getattr(file, 'filename', 'unknown'),
+                "size": len(content),
+                "content_type": getattr(file, 'content_type', 'unknown'),
+                "ok": True,
+            }
+        except Exception as e:
+            import traceback
+            return {"error": str(e), "traceback": traceback.format_exc()}
 
+    @app.post("/api/translate/upload")
+    async def api_translate_upload(request: Request):
+        import sys, traceback as _tb, tempfile
+        _step = "start"
+        try:
+            _step = "parsing_form"
+            form = await request.form()
+            _step = "got_form"
+            file = form.get("file")
+            if not file:
+                return {"error": "no file field", "form_keys": list(form.keys())}
+
+            _step = "reading_params"
             domain = str(form.get("domain", "general"))
             target_lang = str(form.get("target_lang", "auto"))
             use_rag_str = str(form.get("use_rag", "false")).lower()
             use_rag = use_rag_str in ("true", "1", "yes", "on")
 
+            _step = "reading_file"
             suffix = os.path.splitext(getattr(file, 'filename', 'file.txt') or ".txt")[1]
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                 content = await file.read()
                 tmp.write(content)
                 tmp_path = tmp.name
 
+            _step = "parsing_file"
             text = parse_file(tmp_path)
             os.unlink(tmp_path)
 
             if not text.strip():
-                return JSONResponse(status_code=400, content={"error": "文件内容为空"})
+                return {"error": "文件内容为空"}
 
-            # Use AI if client config is provided
+            # 安全截断：防止长文件导致 AI 翻译超时（HF Space 代理超时约 30-60s）
+            MAX_CHARS = 3000
+            if len(text) > MAX_CHARS:
+                truncated = text[:MAX_CHARS]
+                warning = f"文件过长 ({len(text)} 字符)，已截断到前 {MAX_CHARS} 字符进行翻译。"
+            else:
+                truncated = text
+                warning = ""
+
+            _step = "getting_settings"
             client_settings = _ai_settings_from_request(request)
             ai_api_key = client_settings.get("ai_api_key")
             
             if ai_api_key:
+                _step = "ai_path"
                 try:
                     from termprep.agents.orchestrator import AgentOrchestrator
                     from termprep.agents.schemas import Glossary
                     orch = AgentOrchestrator(client_settings)
-                    glossary = orch.run_term_agent(text=text, project_name="upload", top_n=20)
+                    glossary = orch.run_term_agent(text=truncated, project_name="upload", top_n=20)
                     trans = orch.run_translation_agent(
-                        text=text,
+                        text=truncated,
                         glossary=glossary,
                         domain=domain,
                         engine="ai",
@@ -430,15 +509,11 @@ def create_app() -> FastAPI:
                             {"index": s.index, "source": s.source, "target": s.target, "highlights": s.highlights}
                             for s in trans.segments
                         ],
-                        "errors": trans.errors,
+                        "errors": trans.errors + ([warning] if warning else []),
                     }
                 except Exception as ai_err:
                     error_detail = f"AI 翻译失败: {type(ai_err).__name__}: {ai_err}"
-                    result = translate_text(
-                        text=text,
-                        domain=domain,
-                        target_lang=target_lang,
-                    )
+                    result = translate_text(text=text, domain=domain, target_lang=target_lang)
                     return {
                         "filename": getattr(file, 'filename', 'unknown'),
                         "translated": result.translated_text,
@@ -453,12 +528,8 @@ def create_app() -> FastAPI:
                         "errors": result.errors + [error_detail],
                     }
 
-            # 免费引擎路径
-            result = translate_text(
-                text=text,
-                domain=domain,
-                target_lang=target_lang,
-            )
+            _step = "free_path"
+            result = translate_text(text=text, domain=domain, target_lang=target_lang)
             return {
                 "filename": getattr(file, 'filename', 'unknown'),
                 "translated": result.translated_text,
@@ -474,12 +545,12 @@ def create_app() -> FastAPI:
             }
         except Exception as e:
             tb_str = _tb.format_exc()
-            return JSONResponse(status_code=200, content={
-                "error": f"服务器内部错误: {type(e).__name__}: {e}",
+            return {
+                "error": f"服务器内部错误 [{_step}]: {type(e).__name__}: {e}",
                 "traceback": tb_str,
                 "error_type": type(e).__name__,
                 "status": 500,
-            })
+            }
 
     @app.post("/api/termbase/lookup")
     def api_termbase_lookup(data: SearchIn):
@@ -589,6 +660,109 @@ def create_app() -> FastAPI:
             }
         except Exception as e:
             raise HTTPException(500, str(e))
+
+    # ════════════════════════════════════════════════════════════════
+    #  Pipeline v2: Templates + SSE Progress
+    # ════════════════════════════════════════════════════════════════
+
+    @app.get("/api/pipeline/templates")
+    def api_pipeline_templates():
+        """List all available pipeline templates."""
+        return {"templates": list_templates()}
+
+    @app.post("/api/pipeline/v2")
+    def api_pipeline_v2(data: PipelineRunIn, request: Request):
+        """Run pipeline with template support and optional SSE progress streaming."""
+        if not data.text.strip():
+            raise HTTPException(400, "No input text")
+        try:
+            pipeline_id = str(uuid.uuid4())
+            client_settings = _ai_settings_from_request(request)
+
+            # Run translation analysis
+            from termprep.analyzer import analyze
+            analysis_result = analyze(data.text)
+            ta = analyze_translation_difficulty(
+                source_text=data.text,
+                lang=analysis_result.lang,
+                domain=analysis_result.domain,
+            )
+
+            # Build result
+            result = run_pipeline(
+                text=data.text,
+                project_name=data.project_name,
+                top_n=data.top_n,
+                use_ai=data.use_ai,
+                ai_engine=data.ai_engine,
+                translate_mode=data.translate_mode,
+                use_rag=data.use_rag,
+                settings=client_settings,
+            )
+
+            # Read report
+            report_text = ""
+            if result.report_path and os.path.isfile(result.report_path):
+                try:
+                    with open(result.report_path, encoding="utf-8") as f:
+                        report_text = f.read()
+                except Exception:
+                    pass
+
+            return {
+                "pipeline_id": pipeline_id,
+                "template": data.template,
+                "lang": result.analysis.lang if result.analysis else "",
+                "domain": result.analysis.domain if result.analysis else "",
+                "terms": [{"word": t.term, "freq": t.frequency, "type": t.word_type or "word", "score": round(t.score, 3)} for t in result.terms],
+                "terms_count": len(result.terms),
+                "glossary": result.glossary,
+                "full_translation": result.full_translation,
+                "termbase_terms": result.termbase_terms,
+                "duration": round(result.duration, 1),
+                "errors": result.errors,
+                "report": report_text,
+                "report_path": result.report_path or "",
+                "ai_used": result.ai_used,
+                "translate_mode": result.translate_mode,
+                "segments": result.segments,
+                "translation_analysis": ta,
+            }
+        except Exception as e:
+            raise HTTPException(500, str(e))
+
+    @app.get("/api/pipeline/events/{pipeline_id}")
+    async def api_pipeline_events(pipeline_id: str):
+        """SSE endpoint: stream pipeline progress events."""
+        event_queue: queue.Queue = queue.Queue()
+        event_queue._created_at = time.time()
+        _pipeline_events[pipeline_id] = event_queue
+
+        async def event_generator():
+            try:
+                yield f"event: connected\ndata: {json.dumps({'pipeline_id': pipeline_id})}\n\n"
+                while True:
+                    try:
+                        event = event_queue.get(timeout=30)
+                        yield f"event: {event['event']}\ndata: {json.dumps(event['data'], ensure_ascii=False)}\n\n"
+                        if event['event'] == 'pipeline_done':
+                            break
+                    except queue.Empty:
+                        yield f": keepalive\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                _pipeline_events.pop(pipeline_id, None)
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     # ── Serve frontend ──
     @app.get("/", response_class=HTMLResponse)

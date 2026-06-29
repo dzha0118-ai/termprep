@@ -2,9 +2,15 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends gcc && \
-    rm -rf /var/lib/apt/lists/*
+# Install system dependencies (file parsers + OCR)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    antiword \
+    catdoc \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY pyproject.toml requirements.txt ./

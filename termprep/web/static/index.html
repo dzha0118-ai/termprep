@@ -1150,7 +1150,7 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
   <div class="page-header">
     <div class="label">Pipeline</div>
     <h2>全自动流水线</h2>
-    <p>分析 → 提取 → 搜索 → 入库 → 报告 → 导出，一键完成。</p>
+    <p>分析 → 提取 → 术语表 → 全文翻译 → 难度分析 → 报告生成</p>
   </div>
   <div class="card">
     <div class="form-group">
@@ -1163,19 +1163,28 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
         <input type="text" id="pipeline-name" value="MyProject" placeholder="项目名称">
       </div>
       <div class="form-group">
-        <label for="pipeline-top">提取术语数</label>
-        <input type="number" id="pipeline-top" value="20" min="5" max="100">
+        <label for="pipeline-template">流水线模板</label>
+        <select id="pipeline-template">
+          <option value="full-pipeline">完整流水线（全功能）</option>
+          <option value="quick-analysis">快速分析（仅分析+提取）</option>
+          <option value="agent-pipeline">Agent 增强（AI 术语+翻译）</option>
+        </select>
       </div>
     </div>
-    <div class="form-row" style="align-items:center;margin-top:8px">
-      <label class="toggle-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle-switch">
-          <input type="checkbox" id="pipeline-rag" style="opacity:0;width:0;height:0">
-          <span class="toggle-slider"></span>
-        </span>
-        启用医疗 RAG（检索增强生成）
-      </label>
-      <span style="font-size:12px;color:var(--text-muted)">从内置医学语料库检索相关术语与上下文</span>
+    <div class="form-row">
+      <div class="form-group">
+        <label for="pipeline-top">提取术语数</label>
+        <input type="number" id="pipeline-top" value="30" min="5" max="100">
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end">
+        <label class="toggle-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <span class="toggle-switch">
+            <input type="checkbox" id="pipeline-rag" style="opacity:0;width:0;height:0">
+            <span class="toggle-slider"></span>
+          </span>
+          RAG
+        </label>
+      </div>
     </div>
     <button class="btn btn-primary ai-btn" onclick="doPipeline()">运行流水线</button>
     <div class="progress-wrap" id="pipeline-progress">
@@ -1187,9 +1196,11 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
     </div>
     <div class="spinner" id="pipeline-spinner"><div class="spinner-dot"></div>运行中…</div>
     <div class="result-box" id="pipeline-result">
-      <h4>流水线结果</h4>
+      <h4 style="margin-bottom:8px">流水线结果</h4>
       <div id="pipeline-steps"></div>
       <div id="pipeline-summary" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></div>
+
+      <!-- Terms table -->
       <div id="pipeline-terms" style="margin-top:16px;display:none">
         <h4 style="margin-bottom:8px">提取术语</h4>
         <div class="table-wrap"><table>
@@ -1197,6 +1208,16 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
           <tbody id="pipeline-terms-table"></tbody>
         </table></div>
       </div>
+
+      <!-- Translation analysis -->
+      <div id="pipeline-analysis" style="margin-top:16px;display:none">
+        <h4 style="margin-bottom:8px">翻译难度分析</h4>
+        <div id="pipeline-analysis-diff" style="margin-bottom:8px"></div>
+        <div id="pipeline-analysis-flags" style="margin-bottom:8px"></div>
+        <div id="pipeline-analysis-recs"></div>
+      </div>
+
+      <!-- Report -->
       <div id="pipeline-report" style="margin-top:16px;display:none">
         <h4>译前准备报告 <button class="btn btn-sm btn-secondary" onclick="downloadReport()" style="float:right">下载报告</button></h4>
         <pre id="pipeline-report-content" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto;margin-top:8px"></pre>
@@ -2143,15 +2164,48 @@ async function doSearch() {
   if (window.petSetThinking) window.petSetThinking(false);
 }
 
-// ── Pipeline ──
+// ── Pipeline v2 ──
 var _pipelineReport = '';
+
+function renderTranslationAnalysis(ta) {
+  if (!ta) return;
+  const diffEl = document.getElementById('pipeline-analysis-diff');
+  const flagsEl = document.getElementById('pipeline-analysis-flags');
+  const recsEl = document.getElementById('pipeline-analysis-recs');
+
+  const diffLabels = {easy:'\ud83d\udfe2 \u7b80\u5355', medium:'\ud83d\udfe1 \u4e2d\u7b49', hard:'\ud83d\udd34 \u56f0\u96be'};
+  diffEl.innerHTML = '<div style="display:flex;gap:12px;align-items:center">' +
+    '<span style="font-weight:600">\u6574\u4f53\u96be\u5ea6: ' + (diffLabels[ta.overall_difficulty] || ta.overall_difficulty) + '</span>' +
+    '<span style="color:var(--text-muted)">\u5206\u6790 ' + (ta.total_segments||0) + ' \u6bb5</span>' +
+    '</div>';
+
+  if (ta.overall_flags && ta.overall_flags.length) {
+    const flagLabels = {
+      long_sentence:'\u957f\u53e5', legal:'\u6cd5\u5f8b\u672f\u8bed', idiom:'\u4e60\u8bed',
+      ambiguous:'\u591a\u4e49\u8bcd', jargon:'\u884c\u8bdd', cn_four_char_idiom:'\u4e2d\u6587\u6210\u8bed',
+      parenthetical:'\u62ec\u53f7\u6ce8\u91ca', measurement_unit:'\u5ea6\u91cf\u5355\u4f4d'
+    };
+    flagsEl.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">' +
+      ta.overall_flags.map(f => '<span class="stat-badge" style="background:var(--amber-soft);color:var(--amber);padding:2px 8px;border-radius:4px;font-size:11px">\u26a0\ufe0f' + (flagLabels[f]||f) + '</span>').join('') +
+      '</div>';
+  }
+
+  if (ta.recommendations && ta.recommendations.length) {
+    recsEl.innerHTML = '<div style="margin-top:8px;font-size:13px">' +
+      ta.recommendations.map(r =>
+        '<div style="padding:6px 0;border-bottom:1px solid var(--border)"><strong>' + esc(r.type || '') + '</strong>: ' + esc(r.recommendation || '') + '</div>'
+      ).join('') +
+      '</div>';
+  }
+}
 
 async function doPipeline() {
   loadAISettings();
   const text = document.getElementById('pipeline-text').value.trim();
   if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
   const name = document.getElementById('pipeline-name').value || 'MyProject';
-  const top = parseInt(document.getElementById('pipeline-top').value) || 20;
+  const top = parseInt(document.getElementById('pipeline-top').value) || 30;
+  const template = document.getElementById('pipeline-template').value;
   const spinner = document.getElementById('pipeline-spinner');
   const result = document.getElementById('pipeline-result');
   const progressWrap = document.getElementById('pipeline-progress');
@@ -2163,14 +2217,18 @@ async function doPipeline() {
   progressWrap.classList.add('show');
   result.classList.remove('show');
   document.getElementById('pipeline-terms').style.display = 'none';
+  document.getElementById('pipeline-analysis').style.display = 'none';
   document.getElementById('pipeline-report').style.display = 'none';
   if (window.petSetThinking) window.petSetThinking(true);
 
-  const steps = [
-    '\u5206\u6790\u6587\u672c\u2026', '\u63d0\u53d6\u672f\u8bed\u2026',
-    '\u641c\u7d22\u5173\u8054\u8bcd\u6c47\u2026', '\u5efa\u7acb\u672f\u8bed\u5e93\u2026',
-    '\u751f\u6210\u62a5\u544a\u2026', '\u5bfc\u51fa\u5b8c\u6210\u2026'
-  ];
+  // Dynamically build steps display based on template
+  const stepsByTemplate = {
+    'quick-analysis': ['\u5206\u6790\u6587\u672c', '\u63d0\u53d6\u672f\u8bed'],
+    'full-pipeline': ['\u5206\u6790\u6587\u672c', '\u63d0\u53d6\u672f\u8bed', '\u7ffb\u8bd1\u672f\u8bed', '\u5168\u6587\u7ffb\u8bd1', '\u96be\u5ea6\u5206\u6790', '\u751f\u6210\u62a5\u544a'],
+    'agent-pipeline': ['\u5206\u6790\u6587\u672c', 'AI \u63d0\u53d6\u672f\u8bed', 'AI \u7ffb\u8bd1\u672f\u8bed', 'AI \u5168\u6587\u7ffb\u8bd1', '\u96be\u5ea6\u5206\u6790', '\u751f\u6210\u62a5\u544a']
+  };
+  const steps = stepsByTemplate[template] || stepsByTemplate['full-pipeline'];
+
   document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
     `<div class="pstep pending"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
   ).join('');
@@ -2186,14 +2244,16 @@ async function doPipeline() {
 
   try {
     const useRag = document.getElementById('pipeline-rag').checked;
-    const data = await apiWithAI('/api/pipeline', {
+    const data = await apiWithAI('/api/pipeline/v2', {
       text, project_name: name, top_n: top,
+      template: template,
       use_ai: _aiConfig.enabled, ai_engine: _aiConfig.enabled ? 'ai' : null,
-      use_rag: useRag
+      use_rag: useRag,
+      stream: true
     });
     clearInterval(stepInterval);
     progressFill.style.width = '100%';
-    progressStep.textContent = '完成';
+    progressStep.textContent = '\u5b8c\u6210';
     progressPct.textContent = '100%';
 
     document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
@@ -2201,10 +2261,10 @@ async function doPipeline() {
     ).join('');
 
     const lines = [];
-    if (data.lang) lines.push(`\u8bed\u8a00: ${data.lang}`);
-    if (data.domain) lines.push(`\u9886\u57df: ${data.domain}`);
-    if (data.terms_count !== undefined) lines.push(`\u63d0\u53d6\u672f\u8bed: ${data.terms_count}`);
-    if (data.duration) lines.push(`\u8017\u65f6: ${data.duration}s`);
+    if (data.lang) lines.push('\u8bed\u8a00: ' + data.lang);
+    if (data.domain) lines.push('\u9886\u57df: ' + data.domain);
+    if (data.terms_count !== undefined) lines.push('\u63d0\u53d6\u672f\u8bed: ' + data.terms_count);
+    if (data.duration) lines.push('\u8017\u65f6: ' + data.duration + 's');
     document.getElementById('pipeline-summary').textContent = lines.join(' | ') || '\u6d41\u6c34\u7ebf\u5b8c\u6210';
 
     // Terms table
@@ -2215,17 +2275,23 @@ async function doPipeline() {
       document.getElementById('pipeline-terms').style.display = 'block';
     }
 
+    // Translation analysis
+    if (data.translation_analysis) {
+      renderTranslationAnalysis(data.translation_analysis);
+      document.getElementById('pipeline-analysis').style.display = 'block';
+    }
+
     // Report
     if (data.report) {
       _pipelineReport = data.report;
-      document.getElementById('pipeline-report-content').textContent = data.report.substring(0, 5000);
+      document.getElementById('pipeline-report-content').textContent = data.report.substring(0, 8000);
       document.getElementById('pipeline-report').style.display = 'block';
     }
 
     result.classList.add('show');
   } catch(e) {
     clearInterval(stepInterval);
-    progressStep.textContent = '失败';
+    progressStep.textContent = '\u5931\u8d25';
     document.getElementById('pipeline-steps').innerHTML =
       '<div style="color:var(--red);font-size:13px">\u6d41\u6c34\u7ebf\u5931\u8d25: '+esc(e.message)+'</div>';
     result.classList.add('show');

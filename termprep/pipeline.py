@@ -26,6 +26,7 @@ from termprep.config import settings as _default_settings
 from termprep.agents.term_agent import TermAgent
 from termprep.agents.schemas import Glossary
 from termprep.services.translation_service import TranslationService
+from termprep.services.translation_analysis import analyze_translation_difficulty
 
 
 def _pipeline_settings(overrides=None):
@@ -66,6 +67,7 @@ class PipelineResult:
     translate_mode: str = "auto"  # NEW: "auto" | "mixed" | "zh2en" | "en2zh"
     segments: list[dict] = field(default_factory=list)  # NEW: paragraph segments for mixed mode
     rag_metadata: dict[str, Any] = field(default_factory=dict)  # NEW: RAG retrieval metadata
+    translation_qa: dict[str, Any] = field(default_factory=dict)  # NEW: AI QA review metadata
 
 
 def run_pipeline(
@@ -205,12 +207,17 @@ def run_pipeline(
         is_cn = bool(re.search(r'[\u4e00-\u9fff]', source_text))
 
         if translate_mode == "mixed":
-            # NEW: mixed mode — paragraph-level bidirectional translation
             from termprep.translator import translate_text_mixed
-            mixed_result = translate_text_mixed(source_text, domain=result.analysis.domain if result.analysis else "general", engine=ai_engine if use_ai else None, settings=active_settings, use_rag=use_rag)
+            mixed_result = translate_text_mixed(
+                source_text,
+                domain=result.analysis.domain if result.analysis else "general",
+                engine=ai_engine if use_ai else None,
+                settings=active_settings,
+                use_rag=use_rag,
+                glossary=glossary_compact if use_ai and result.ai_used else None,
+            )
             result.full_translation = mixed_result.translated_text
             result.rag_metadata = mixed_result.rag_metadata or {}
-            # NEW: pass segments for frontend bilingual display
             result.segments = [
                 {"index": seg.index, "source": seg.source, "target": seg.target, "highlights": seg.highlights}
                 for seg in mixed_result.segments
@@ -223,6 +230,7 @@ def run_pipeline(
                 trans_result = svc.translate(text=source_text, source_lang="zh", target_lang="en", domain=result.analysis.domain if result.analysis else "general", engine=ai_engine, glossary=glossary_compact, use_rag=use_rag)
                 result.full_translation = trans_result.text
                 result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
+                result.translation_qa = getattr(trans_result, 'metadata', {})
             else:
                 result.full_translation = _translate_text(source_text, "zh-CN", "en")
 
@@ -233,6 +241,7 @@ def run_pipeline(
                 trans_result = svc.translate(text=source_text, source_lang="en", target_lang="zh", domain=result.analysis.domain if result.analysis else "general", engine=ai_engine, glossary=glossary_compact, use_rag=use_rag)
                 result.full_translation = trans_result.text
                 result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
+                result.translation_qa = getattr(trans_result, 'metadata', {})
             else:
                 result.full_translation = _translate_text(source_text, "en", "zh-CN")
 
@@ -254,6 +263,7 @@ def run_pipeline(
                 )
                 result.full_translation = trans_result.text
                 result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
+                result.translation_qa = getattr(trans_result, 'metadata', {})
                 if trans_result.errors:
                     result.errors.extend(trans_result.errors)
             else:
@@ -290,6 +300,19 @@ def run_pipeline(
     except Exception as e:
         result.errors.append(f"Termbase failed: {e}")
 
+    # ---- Step 5.5: Translation Analysis ----
+    translation_analysis_data = None
+    try:
+        translation_analysis_data = analyze_translation_difficulty(
+            source_text=source_text,
+            lang=result.analysis.lang if result.analysis else "auto",
+            domain=result.analysis.domain if result.analysis else "general",
+            terms=[{"term": t.term, "score": t.score} for t in result.terms],
+            glossary=result.glossary,
+        )
+    except Exception as e:
+        result.errors.append(f"Translation analysis failed: {e}")
+
     # ---- Step 6: Generate Report ----
     try:
         tdb = TermDB(db_name=tdb_name) if result.termbase_terms > 0 else None
@@ -306,11 +329,15 @@ def run_pipeline(
             project_name=project_name,
             source_file=file_path or "",
             notes=notes,
+            translation_analysis=translation_analysis_data,
+            segments=result.segments,
+            source_text=source_text,
+            translation_qa=result.translation_qa,
         )
         # Append glossary JSON to report if available
         if result.glossary_json:
             report_text += "\n\n---\n\n"
-            report_text += "## 8. Standardized Glossary JSON (Agent Schema)\n\n"
+            report_text += "## 10. Standardized Glossary JSON (Agent Schema)\n\n"
             report_text += f"```json\n{result.glossary_json}\n```\n"
         save_report(report_text, report_output)
         result.report_path = report_output

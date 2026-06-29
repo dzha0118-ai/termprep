@@ -20,7 +20,32 @@ class StepContext:
     report_path: str = ""
     exports: dict[str, str] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)  # engine-specific data
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    # Translation difficulty analysis
+    translation_analysis: dict[str, Any] = field(default_factory=dict)
+
+    # Pipeline orchestration
+    pipeline_id: str = ""
+    pipeline_template: str = ""
+    pipeline_steps: list[dict] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "project_name": self.project_name,
+            "source_text": self.source_text[:200] if self.source_text else "",
+            "source_file": self.source_file,
+            "analysis": self.analysis,
+            "terms_count": len(self.terms),
+            "glossary_count": len(self.glossary),
+            "has_translation": bool(self.full_translation),
+            "report_path": self.report_path,
+            "exports": self.exports,
+            "errors": self.errors,
+            "translation_analysis": self.translation_analysis,
+            "pipeline_id": self.pipeline_id,
+            "pipeline_template": self.pipeline_template,
+        }
 
 
 class PipelineStep(ABC):
@@ -30,17 +55,10 @@ class PipelineStep(ABC):
 
     @abstractmethod
     def run(self, ctx: StepContext) -> StepContext:
-        """Execute the step and return the (possibly mutated) context.
-
-        Steps should be idempotent where possible: running twice with the
-        same input should produce the same output.
-        """
         ...
 
     def can_run(self, ctx: StepContext) -> bool:
-        """Return True if this step should execute given the current context.
-
-        Override to implement conditional steps (e.g. skip AI translation
-        when source text is empty).
-        """
         return True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name}
