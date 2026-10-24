@@ -65,6 +65,12 @@ pinned: false
 - **多源并发聚合**：有道 + Wikipedia + AI 同时检索，合并去重、`also_from` 跨源印证，词典源优先
 - 词典搜索支持逐条**采用 / 弃用**，采用结果在 resume 时优先作为该术语译文
 - 术语翻译**四通道补齐**（批量 → 小批量重试 → 免费引擎 → 单条 AI），并容忍 8 种回复格式
+- **全文翻译质量**：
+  - 按**段落**切分并保留段落结构（旧实现切句后直接拼接，产生 `journey.Now` 这类粘连、段落全丢）
+  - 提示词写死「逐句完整、句数与段落数守恒、中文意合、全角标点、句子要有主谓」
+  - **漏译审计**：句数守恒 + 长度区间双向校验，分块路径逐块审计，漏句自动重试
+  - **译后规范化**：半角标点、中文字词间空格、行末缺标点、段落空行统一收拾
+  - 校对守卫：校对结果更短或审计转差时**拒绝采纳**；`TERMPREP_AI_FULL_TEXT_QA=false` 可关全文校对
 - 术语高亮**与实际译文对齐**：`target_span` 必须能在译文中原样找到，否则不展示（宁可少标，不可错标）
 
 ### 数据留存与可复现（论文级）
@@ -167,6 +173,7 @@ python deploy_hf.py            # 全量同步并推送，Space 自动重建
 | 套件 | 覆盖 |
 |---|---|
 | `verify_hitl.py` | 检查点全链路（44 项）：start → 剔除/修正/合并/新增 → resume，逐项核对**真实术语库** |
+| `verify_translation_quality.py` | 全文翻译质量（54 项）：分段不粘连/段落保序、译后规范化、漏译审计、逐块重试、校对守卫 |
 | `verify_extraction_diagnosis.py` | 「为什么提取不出来」（38 项）：AI 清空候选时的兜底、5 种诊断 code、剔除项可加回、刷新可恢复 |
 | `verify_frontend_ui.py` | 前端静态一致性（48 项）：id 唯一、`getElementById` 目标存在、内联处理函数已定义、后端字段有渲染、下载按钮指向真实接口（**零依赖**） |
 | `verify_ui_e2e.js` | UI 端到端（50 项，可选）：jsdom 加载真实页面驱动真实接口，点「下一步」并**真的下载**报告/CSV/JSON/ZIP（需 `npm i --no-save jsdom`） |
@@ -176,7 +183,8 @@ python deploy_hf.py            # 全量同步并推送，Space 自动重建
 | `verify_term_verifier.py` | AI 术语复核的降级与保守匹配（24 项） |
 | `verify_case_bundle.py` | **清库后仅凭数据包复现**（45 项） |
 | `eval_term_extraction.py --check` | 术语提取质量回归门禁 |
-| `live_test_space.py` | 线上 Space **只读**体检（42 项） |
+| `live_test_space.py` | 线上 Space **只读**体检（61 项） |
+| `verify_live_translation.py` | 线上全文翻译质量体检（真实 AI，可选；会在线上新建一个 `qualitycheck-*` 术语库并消耗一次额度） |
 
 ```bash
 python verify_hitl.py

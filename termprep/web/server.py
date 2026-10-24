@@ -2074,6 +2074,7 @@ def create_app() -> FastAPI:
             "termbase_name": result.termbase_name,
             "termbase_terms": result.termbase_terms,
             "full_translation": result.full_translation,
+            "translation_qa": getattr(result, "translation_qa", {}) or {},
             "report": (open(result.report_path, encoding="utf-8").read()
                        if result.report_path and os.path.isfile(result.report_path) else ""),
             "report_path": result.report_path or "",

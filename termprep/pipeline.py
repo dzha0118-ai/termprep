@@ -392,6 +392,19 @@ def run_pipeline(
                     else:
                         result.full_translation = _translate_text(source_text, "en", "zh-CN")
 
+            # 统一后处理：AI 与免费引擎的译文都要过一遍规范化
+            # （半角标点、中文字词间空格、行末缺句号、段落空行）——
+            # 免费引擎兜底时尤其需要，否则全文译文的排版是脏的。
+            try:
+                from termprep.engines.ai_translator import normalize_target_text
+
+                _norm_tgt = ("en" if is_cn else "zh") if translate_mode == "auto" \
+                    else ("en" if translate_mode == "zh2en" else "zh")
+                result.full_translation = normalize_target_text(
+                    result.full_translation or "", _norm_tgt)
+            except Exception:
+                pass
+
             # A silently empty translation is a FAILURE, not a success. Previously
             # an empty result was reported identically to a step that never ran —
             # exactly the "看不到第四步全文翻译" symptom.

@@ -85,6 +85,10 @@ class TermPrepConfig:
         # Features
         self.translation_cache: bool = _env_bool(os.environ.get("TERMPREP_TRANSLATION_CACHE"))
         self.max_fallbacks: int = int(os.environ.get("TERMPREP_MAX_FALLBACKS", "3"))
+        # 全文翻译完成后是否再跑一次 AI 校对（默认开：这是提升译文自然度的关键一步，
+        # 关掉可省一次调用）。TERMPREP_AI_FULL_TEXT_QA=false 可关闭。
+        self.ai_full_text_qa: bool = _env_bool(
+            os.environ.get("TERMPREP_AI_FULL_TEXT_QA", "true"))
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +100,7 @@ class TermPrepConfig:
             "ai_max_tokens": self.ai_max_tokens,
             "ai_timeout": self.ai_timeout,
             "ai_priority": self.ai_priority,
+            "ai_full_text_qa": self.ai_full_text_qa,
             "youdao_key": self.youdao_key,
             "youdao_secret": self.youdao_secret,
             "youdao_priority": self.youdao_priority,
