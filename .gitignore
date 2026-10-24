@@ -41,6 +41,8 @@ reports/*
 *.sqlite3
 *-report.md
 *-glossary.json
+*-terms.csv
+*-terms.json
 free-report.md
 test-report.md
 test-glossary.json

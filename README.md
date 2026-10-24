@@ -34,6 +34,14 @@ pinned: false
 被剔除的术语绝不入库；修正项以译员给定值入库；合并项只保留一条并记录 `merged_from` 溯源；
 新增项走裁决日志（无需管理员令牌）。
 
+裁决表里每一条候选**在检查点阶段就已填好建议译文**（AI 批量 → 小批量重试 → 免费引擎 → 单条 AI
+四通道补齐，任何通道失败都不阻断检查点）。没有译文的行会给出「＋ 补译」入口——看不到译文就没法裁。
+
+裁决完成后进入 **④→⑧ 分步视图**：术语表 / 全文翻译 / 入库术语库 / 报告 / 导出，
+一次展开一张，底部「下一步」逐格推进，顶部阶段条**只标到当前这一步**（不会提前全绿）。
+每一步都能拿到真实产物：报告 `.md`、术语表 `.csv` / `.json`、个案数据包 `.zip`。
+刷新页面不会丢——结果存在会话里，`has_result` 为真时直接还原整套分步视图。
+
 ### 术语提取（多层校验）
 
 ```
@@ -124,6 +132,7 @@ Space 需为 **Docker** 类型。把仓库内容（`Dockerfile`、`termprep/`、
 | 检索/关联 | `POST /api/search` · `POST /api/associate` · `POST /api/termbase/lookup` |
 | 翻译 | `POST /api/translate` · `POST /api/translate/upload`(admin) |
 | **检查点** | `POST /api/pipeline/start` · `GET /api/pipeline/{id}` · `POST /api/pipeline/{id}/resume` |
+| **检查点下载** | `GET /api/pipeline/{id}/report` · `GET /api/pipeline/{id}/export/{csv,json}` |
 | 全自动 | `POST /api/pipeline` · `POST /api/pipeline/v2` · `GET /api/pipeline/templates` |
 | 裁决日志 | `POST /api/decisions/record` · `GET /api/decisions/{list,summary,export}` |
 | **个案数据包** | `GET /api/cases/bundle` · `POST /api/cases/snapshot` · `GET /api/cases/snapshots` |
@@ -141,6 +150,8 @@ Space 需为 **Docker** 类型。把仓库内容（`Dockerfile`、`termprep/`、
 | 套件 | 覆盖 |
 |---|---|
 | `verify_hitl.py` | 检查点全链路（44 项）：start → 剔除/修正/合并/新增 → resume，逐项核对**真实术语库** |
+| `verify_frontend_ui.py` | 前端静态一致性（34 项）：id 唯一、`getElementById` 目标存在、内联处理函数已定义、后端字段有渲染、下载按钮指向真实接口（**零依赖**） |
+| `verify_ui_e2e.js` | UI 端到端（40 项，可选）：jsdom 加载真实页面驱动真实接口，点「下一步」并**真的下载**报告/CSV/JSON/ZIP（需 `npm i --no-save jsdom`） |
 | `verify_hitl_storage.py` | 检查点存储的**多进程并发**稳定性（4 进程 × 60 次读写） |
 | `verify_acceptance.py` | 安全与功能验收（40 项） |
 | `verify_pipeline_fixes.py` | 流水线步骤/全文翻译回归（29 项） |
@@ -151,6 +162,7 @@ Space 需为 **Docker** 类型。把仓库内容（`Dockerfile`、`termprep/`、
 
 ```bash
 python verify_hitl.py
+python verify_frontend_ui.py
 python eval_term_extraction.py --check
 ```
 

@@ -143,6 +143,49 @@ def _hitl_save(session_id: str, payload: dict[str, Any]) -> None:
     _HITL_LOCAL_CACHE[session_id] = dict(payload, session_id=session_id)
 
 
+def _pipeline_session_or_404(session_id: str) -> dict[str, Any]:
+    """取检查点会话；区分「存储故障(503)」与「会话不存在(404)」。"""
+    try:
+        sess = _hitl_get(session_id)
+    except Exception as e:
+        raise HTTPException(
+            503,
+            f"检查点存储暂时不可用（{type(e).__name__}）。请重试；"
+            "若持续失败请查看 /api/health 的 hitl 区块。",
+        )
+    if not sess:
+        raise HTTPException(
+            404,
+            "该检查点会话已过期或不存在（TTL 1 小时）。请在流水线页重新点"
+            "「① 开始：分析与提取」。",
+        )
+    return sess
+
+
+def _download_name(sess: dict[str, Any], kind: str, ext: str) -> str:
+    """生成安全的下载文件名（中文项目名转写失败则退回默认名）。"""
+    raw = (sess.get("result", {}) or {}).get("termbase_name") \
+        or sess.get("project_name") or ""
+    base = re.sub(r"[^A-Za-z0-9._-]+", "-", str(raw)).strip("-._")
+    base = base[:60] or "termprep"
+    ext = (ext or "txt").lstrip(".")
+    return f"{base}-{kind}.{ext}"
+
+
+def _attachment_headers(filename: str) -> dict[str, str]:
+    """Content-Disposition：同时给出 ASCII 回退与 RFC 5987 的 UTF-8 名。"""
+    from urllib.parse import quote
+
+    ascii_name = re.sub(r'[^A-Za-z0-9._-]+', "-", filename) or "download"
+    return {
+        "Content-Disposition": (
+            f'attachment; filename="{ascii_name}"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        ),
+        "Cache-Control": "no-store",
+    }
+
+
 # ── Agent task store (module level, so submit/status/execute agree) ──
 # The orchestrator keeps its own _tasks dict per instance, but the API creates a
 # fresh orchestrator per request — which is exactly why submit returned a
@@ -313,6 +356,8 @@ class PipelineStartIn(BaseModel):
     top_n: int = 30
     source_file: str = ""
     domain_hint: str = ""
+    # 检查点阶段就把候选译文填好，否则裁决表那一列永远是「—」，译员只能盲裁
+    prefill_translations: bool = True
 
 
 class DecisionRecordIn(BaseModel):
@@ -401,6 +446,57 @@ def _adopted_translations_from_log(session_id: str = "") -> dict[str, str]:
     except Exception:
         pass
     return out
+
+
+def _fill_candidate_translations(
+    candidates: list[dict], client_settings: dict
+) -> dict:
+    """在检查点阶段就把候选术语的译文填好。
+
+    没有译文的裁决表是没法裁决的：译员看不到「译后编辑工作量」该译成什么，
+    就无从判断该采纳还是剔除。原先检查点返回 ``translation: ""``，前端那一列
+    永远是「—」，等于让译员盲裁。这里复用 translate_terms 的四通道补齐
+    （AI 批量 → 小批量重试 → 免费引擎 → 单条 AI），任何失败都只是让该行留空，
+    绝不阻断检查点自身。
+    """
+    words = [c.get("word") or "" for c in candidates]
+    words = [w for w in words if w.strip()]
+    if not words:
+        return {"used": False, "reason": "no candidates", "filled": 0, "total": 0}
+
+    try:
+        from termprep.services.translation_service import TranslationService
+
+        svc = TranslationService(client_settings)
+        svc.load_engines()
+        joined = " ".join(words)
+        src_lang = "zh" if re.search(r"[\u4e00-\u9fff]", joined) else "en"
+        tgt_lang = "en" if src_lang == "zh" else "zh"
+        results = svc.translate_terms(words, source_lang=src_lang, target_lang=tgt_lang)
+    except Exception as e:
+        return {"used": False, "reason": f"{type(e).__name__}: {e}",
+                "filled": 0, "total": len(words)}
+
+    by_term = {r.get("term"): r for r in results or []}
+    filled = 0
+    for c in candidates:
+        r = by_term.get(c.get("word"))
+        if not r:
+            continue
+        trans = (r.get("translation") or "").strip()
+        if not trans:
+            continue
+        c["translation"] = trans
+        c["translation_engine"] = r.get("engine") or ""
+        c["translation_confidence"] = r.get("confidence") or 0.0
+        filled += 1
+
+    return {
+        "used": True,
+        "filled": filled,
+        "total": len(words),
+        "missing": len(words) - filled,
+    }
 
 
 def _apply_adjudication(
@@ -1673,6 +1769,12 @@ def create_app() -> FastAPI:
             "ai_provider": client_settings.get("ai_provider") or "",
             "ai_model": client_settings.get("ai_model") or "",
         }
+
+        # 检查点阶段补齐候选译文（失败不阻断：该行留空，前端提示「补译」）
+        prefill = ({"used": False, "reason": "disabled", "filled": 0,
+                    "total": len(candidates)} if data.prefill_translations is False
+                   else _fill_candidate_translations(candidates, client_settings))
+
         analysis_payload = {
             "lang": analysis_result.lang,
             "domain": analysis_result.domain,
@@ -1708,6 +1810,7 @@ def create_app() -> FastAPI:
             "terms": candidates,
             "terms_count": len(candidates),
             "verification": verification,
+            "translation_prefill": prefill,
             "rejected": rejected_by_ai,
             "next": f"POST /api/pipeline/{session_id}/resume 提交裁决后继续",
         }
@@ -1737,6 +1840,9 @@ def create_app() -> FastAPI:
             "analysis": sess.get("analysis", {}),
             "terms": sess.get("terms", []),
             "terms_count": len(sess.get("terms") or []),
+            # 裁决后已跑完 ④→⑧ 的会话，刷新页面照样能看报告、能下载
+            "result": sess.get("result") or None,
+            "has_result": bool(sess.get("result")),
         }
 
     @app.post("/api/pipeline/{session_id}/resume")
@@ -1849,9 +1955,10 @@ def create_app() -> FastAPI:
         except Exception as e:
             case_bundle_info["error"] = f"{type(e).__name__}: {e}"
 
-        return {
+        payload = {
             "session_id": session_id,
             "mode": "hitl",
+            "project_name": project,
             "adjudication": stats,
             "steps": result.step_status,
             "step_status": result.step_status,
@@ -1870,6 +1977,63 @@ def create_app() -> FastAPI:
             "adopted_translations": adopted,
             "case": case_bundle_info,
         }
+
+        # 结果必须留在会话里：否则一刷新页面，报告/导出就"消失"了——
+        # 用户看到的不是"没算出来"，而是"算出来了却拿不到"。
+        try:
+            sess["result"] = payload
+            _hitl_save(session_id, sess)
+        except Exception:
+            pass
+
+        return payload
+
+    @app.get("/api/pipeline/{session_id}/report")
+    def api_pipeline_report(session_id: str):
+        """下载检查点会话的报告（Markdown）。"""
+        sess = _pipeline_session_or_404(session_id)
+        res = sess.get("result") or {}
+        text = res.get("report") or ""
+        if not text:
+            path = res.get("report_path") or ""
+            if path and os.path.isfile(path):
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+        if not text:
+            raise HTTPException(404, "本次会话尚未生成报告，请先完成裁决并继续流水线。")
+        name = _download_name(sess, "report", "md")
+        return Response(
+            content=text.encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers=_attachment_headers(name),
+        )
+
+    @app.get("/api/pipeline/{session_id}/export/{fmt}")
+    def api_pipeline_export(session_id: str, fmt: str):
+        """下载检查点会话的导出文件（csv / json / glossary_json）。"""
+        sess = _pipeline_session_or_404(session_id)
+        res = sess.get("result") or {}
+        exports = res.get("exports") or {}
+        key = (fmt or "").strip().lower()
+        allowed = {"csv", "json", "glossary_json"}
+        if key not in allowed:
+            raise HTTPException(400, f"不支持的导出格式：{fmt}（可选 {sorted(allowed)}）")
+        path = exports.get(key) or ""
+        if not path or not os.path.isfile(path):
+            raise HTTPException(404, f"本次会话没有 {key} 导出文件，请先完成裁决并继续流水线。")
+        ext = os.path.splitext(path)[1].lstrip(".").lower() or "txt"
+        media = {"csv": "text/csv; charset=utf-8",
+                 "json": "application/json; charset=utf-8"}.get(ext,
+                                                                "application/octet-stream")
+        if key == "glossary_json":
+            ext = "glossary.json"
+        with open(path, "rb") as f:
+            body = f.read()
+        return Response(
+            content=body,
+            media_type=media,
+            headers=_attachment_headers(_download_name(sess, key, ext)),
+        )
 
     @app.get("/api/pipeline/events/{pipeline_id}")
     async def api_pipeline_events(pipeline_id: str):

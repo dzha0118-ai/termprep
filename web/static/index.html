@@ -1465,6 +1465,22 @@ tr.hitl-added{background:var(--green-soft)}
 <!-- JAVASCRIPT -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <script>
+// ── 关键数据表：一律放在脚本最前面 ──
+// 顶层语句一旦抛错，后面所有 var 赋值都不会执行。把这几张表放最前面，
+// 保证任何"装饰性"顶层代码（主题、动效、统计上报）出错都不会把界面拖成
+// 「函数都在、数据表是 undefined」的静默失效状态。
+var PIPELINE_STAGES = ['① 分析', '② 提取', '③ 译员裁决', '④ 术语表', '⑤ 全文翻译',
+                       '⑥ 术语库', '⑦ 报告', '⑧ 导出'];
+var _RESUME_STAGE = { glossary: 3, full_translate: 4, termbase: 5, report: 6, export: 7 };
+// 裁决后 ④→⑧ 的分步阶段（每步一张卡片，带真实下载）
+var HITL_STAGES = [
+  { key: 'glossary',  step: 'glossary',       label: '④ 术语表' },
+  { key: 'translate', step: 'full_translate', label: '⑤ 全文翻译' },
+  { key: 'termbase',  step: 'termbase',       label: '⑥ 入库术语库' },
+  { key: 'report',    step: 'report',         label: '⑦ 报告' },
+  { key: 'export',    step: 'export',         label: '⑧ 导出' }
+];
+
 // ── Navigation ──
 // ── Mobile nav toggle ──
 function toggleNav() {
@@ -1540,16 +1556,24 @@ window.addEventListener('resize', function(){
 });
 
 // ── Theme toggle ──
+// 注意：整段包在 try 里。顶层语句一旦抛错，后面所有 var 赋值都不会执行，
+// 结果就是「函数都在、但 PIPELINE_STAGES 之类的表是 undefined」——界面看起来
+// 正常却处处静默失效，极难排查。主题这种装饰功能绝不该有这种杀伤力。
 (function(){
-  var saved = sessionStorage.getItem('termprep-theme');
-  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  // Default to dark unless user explicitly chose light
-  if (saved === 'light') {
-    document.documentElement.classList.remove('dark');
-  } else if (saved === 'dark' || (!saved && prefersDark) || !saved) {
-    document.documentElement.classList.add('dark');
+  try {
+    var saved = sessionStorage.getItem('termprep-theme');
+    var prefersDark = (typeof window.matchMedia === 'function')
+      && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // Default to dark unless user explicitly chose light
+    if (saved === 'light') {
+      document.documentElement.classList.remove('dark');
+    } else if (saved === 'dark' || (!saved && prefersDark) || !saved) {
+      document.documentElement.classList.add('dark');
+    }
+    updateThemeIcon();
+  } catch (e) {
+    /* 主题失败不影响任何功能 */
   }
-  updateThemeIcon();
 })();
 function toggleTheme() {
   document.documentElement.classList.toggle('dark');
@@ -2119,8 +2143,12 @@ function renderHitlTable() {
       '<td class="text-mono" title="' + escAttr(why) + '" style="cursor:help">' + t.score + '</td>' +
       '<td style="font-size:12px;color:var(--text-muted)">' + esc(t.pos || '—') + '</td>' +
       '<td>' + (shownTrans
-        ? '<span style="color:var(--green);font-size:12px">' + esc(shownTrans) + '</span>'
-        : '<span style="font-size:11px;color:var(--text-dim)">—</span>') + '</td>' +
+        ? '<span style="color:var(--green);font-size:12px"' +
+          (t.translation_engine ? ' title="来自 ' + escAttr(t.translation_engine) + '"' : '') +
+          '>' + esc(shownTrans) + '</span>'
+        : '<button class="btn btn-sm btn-secondary" data-v="edited" data-idx="' + i + '" ' +
+          'data-word="' + escAttr(word_safe(w)) + '" onclick="markVerdict(this)" ' +
+          'style="font-size:11px;padding:2px 8px">＋ 补译</button>') + '</td>' +
       '<td>' + cell + '</td></tr>';
   }).join('');
 
@@ -2258,8 +2286,10 @@ async function resumePipeline() {
       engine: _aiConfig.enabled ? 'ai' : null,
       export_formats: ['csv', 'json']
     });
+    // 阶段条由 renderHitlResume 按「当前看到第几步」来画。
+    // 这里千万不能再调 renderStepperFromResume() —— 它会把 8 步一次性全刷绿，
+    // 于是用户看到「全绿了却没有下一步」（这正是之前的 bug）。
     renderHitlResume(data, targets);
-    renderStepperFromResume(data);
     var panel = document.getElementById('pipeline-checkpoint');
     if (panel) panel.style.display = 'block';
     if (window.petPulse) window.petPulse();
@@ -2276,58 +2306,234 @@ async function resumePipeline() {
   }
 }
 
+// ── 裁决后的 ④→⑧：真实结果 + 逐步查看 ──
+// 之前把六步结果堆成一大坨文字，用户既找不到「下一步」，也没有任何下载入口。
+// 现在每个阶段是一张卡片，用「下一步」逐个展开，每张卡片都带真实下载按钮。
+// （HITL_STAGES 在脚本最前面声明）
+
+function _stepByName(steps, name) {
+  for (var i = 0; i < (steps || []).length; i++) {
+    if (steps[i].name === name) return steps[i];
+  }
+  return null;
+}
+
+function _dlBtn(url, text, primary) {
+  if (!url) return '';
+  return '<button class="btn btn-sm ' + (primary ? 'btn-primary' : 'btn-secondary') + '" ' +
+    'data-url="' + escAttr(url) + '" onclick="window.location.href=this.dataset.url" ' +
+    'style="margin:0 8px 8px 0">' + esc(text) + '</button>';
+}
+
+function _preBox(text, maxH) {
+  return '<pre style="background:var(--bg);border:1px solid var(--border);border-radius:8px;' +
+    'padding:12px;font-size:12.5px;line-height:1.8;white-space:pre-wrap;word-break:break-word;' +
+    'max-height:' + (maxH || 320) + 'px;overflow-y:auto;margin:0">' + esc(text) + '</pre>';
+}
+
+// 单张阶段卡片的正文（只放该阶段的真实产物）
+function _hitlStageBody(data, key, sid) {
+  var cs = data.case || {};
+  if (key === 'glossary') {
+    var gl = data.glossary || [];
+    if (!gl.length) return '<div style="font-size:12px;color:var(--red)">没有入库术语（全部被剔除？）</div>';
+    var rows = gl.map(function (g, i) {
+      var tag = (g.verdict && g.verdict !== 'accepted')
+        ? ' <span style="font-size:10px;color:var(--accent)">[' + esc(g.verdict) + ']</span>' : '';
+      var mf = (g.merged_from && g.merged_from.length)
+        ? ' <span style="font-size:10px;color:var(--text-dim)">← 合并自 ' +
+          esc(g.merged_from.join('、')) + '</span>' : '';
+      return '<tr><td>' + (i + 1) + '</td><td><strong>' + esc(g.term) + '</strong></td>' +
+        '<td style="color:var(--green)">' + esc(g.translation) + '</td>' +
+        '<td style="font-size:11px">' + esc(g.type || '') + tag + mf + '</td></tr>';
+    }).join('');
+    return '<div class="table-wrap"><table><thead><tr><th>#</th><th>术语</th>' +
+      '<th>译文（入库值）</th><th>类型 / 备注</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<div style="margin-top:8px;font-size:11.5px;color:var(--text-muted)">共 ' +
+      gl.length + ' 条，下面两处下载的是同一份数据</div>' +
+      '<div style="margin-top:8px">' +
+        _dlBtn('/api/pipeline/' + encodeURIComponent(sid) + '/export/csv', '⤓ 术语表 CSV') +
+        _dlBtn('/api/pipeline/' + encodeURIComponent(sid) + '/export/json', '⤓ 术语表 JSON') +
+      '</div>';
+  }
+
+  if (key === 'translate') {
+    var ft = data.full_translation || '';
+    if (!ft.trim()) {
+      return '<div style="font-size:12px;color:var(--red);line-height:1.8">' +
+        '全文翻译未产出。常见原因：未配置 AI 密钥（Settings → Secrets 里的 ' +
+        'TERMPREP_AI_API_KEY），或免费引擎限流。配置后重新裁决即可。</div>';
+    }
+    return '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:8px">' +
+      ft.length + ' 字符</div>' + _preBox(ft, 360);
+  }
+
+  if (key === 'termbase') {
+    var n = data.termbase_terms || 0;
+    var nm = data.termbase_name || '';
+    if (!n) {
+      return '<div style="font-size:12px;color:var(--red)">没有术语写入术语库。</div>';
+    }
+    return '<div style="font-size:13px;line-height:2">' +
+      '已入库 <strong style="color:var(--green)">' + n + '</strong> 条 → 术语库 ' +
+      '<strong>' + esc(nm) + '</strong></div>' +
+      '<div style="margin-top:6px;font-size:11.5px;color:var(--text-muted)">' +
+      '被剔除的术语不会入库；修正过的术语以你给定的译文中入库。' +
+      '可在「术语库」页查看该库内容。</div>';
+  }
+
+  if (key === 'report') {
+    var rep = data.report || '';
+    if (!rep.trim()) {
+      return '<div style="font-size:12px;color:var(--red)">报告未生成。</div>';
+    }
+    return '<div style="margin-bottom:8px">' +
+      _dlBtn('/api/pipeline/' + encodeURIComponent(sid) + '/report', '⤓ 下载报告 (.md)', true) +
+      '</div>' + _preBox(rep, 420);
+  }
+
+  if (key === 'export') {
+    var expKeys = Object.keys(data.exports || {});
+    var btns =
+      _dlBtn('/api/pipeline/' + encodeURIComponent(sid) + '/report', '⤓ 报告 (.md)', true) +
+      _dlBtn('/api/pipeline/' + encodeURIComponent(sid) + '/export/csv', '⤓ 术语表 (.csv)') +
+      _dlBtn('/api/pipeline/' + encodeURIComponent(sid) + '/export/json', '⤓ 术语表 (.json)') +
+      _dlBtn(cs.download_url || '', '⤓ 个案数据包 (.zip，可复现)');
+    var saved = cs.snapshot
+      ? '<div style="font-size:11.5px;color:var(--text-dim);word-break:break-all">' +
+        '服务端已保存快照：' + esc(cs.snapshot) + '</div>' : '';
+    var errs = (data.errors || []).length
+      ? '<div style="margin-top:10px;font-size:12px;color:var(--red);line-height:1.7">⚠ ' +
+        esc(data.errors.join(' ｜ ')) + '</div>' : '';
+    return '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">' +
+      '已生成文件：' + (expKeys.length ? esc(expKeys.join(', ')) : '（无）') + '</div>' +
+      btns + saved + errs;
+  }
+  return '';
+}
+
+// 把「第 i 个阶段」设为当前：显示该卡、隐藏其它、同步顶部阶段条
+function hitlShowStage(root, idx, data) {
+  var cards = root.querySelectorAll('[data-hitl-card]');
+  var n = cards.length;
+  if (idx < 0) idx = 0;
+  if (idx > n - 1) idx = n - 1;
+  root.dataset.stage = String(idx);
+  for (var i = 0; i < n; i++) {
+    cards[i].style.display = (i === idx) ? 'block' : 'none';
+  }
+  var tabs = root.querySelectorAll('[data-hitl-tab]');
+  for (var j = 0; j < tabs.length; j++) {
+    var on = j === idx;
+    tabs[j].style.background = on ? 'var(--accent-soft)' : 'var(--bg)';
+    tabs[j].style.color = on ? 'var(--accent)' : 'var(--text-muted)';
+    tabs[j].style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+  }
+  var cnt = root.querySelector('[data-hitl-count]');
+  if (cnt) cnt.textContent = '第 ' + (idx + 1) + ' / ' + n + ' 步 · ' + HITL_STAGES[idx].label;
+  var prev = root.querySelector('[data-hitl-prev]');
+  var next = root.querySelector('[data-hitl-next]');
+  if (prev) prev.style.visibility = idx === 0 ? 'hidden' : 'visible';
+  if (next) {
+    if (idx >= n - 1) {
+      next.textContent = '✓ 已完成全部步骤';
+      next.disabled = true;
+      next.style.opacity = '.55';
+    } else {
+      next.textContent = '下一步：' + HITL_STAGES[idx + 1].label + ' →';
+      next.disabled = false;
+      next.style.opacity = '1';
+    }
+  }
+  // 顶部阶段条：0-2 恒为 ok（分析/提取/裁决），3+i 之前已完成、当前高亮
+  var map = { 0: 'ok', 1: 'ok', 2: 'ok' };
+  for (var k = 0; k < n; k++) {
+    map[3 + k] = k < idx ? 'ok' : (k === idx ? 'current' : 'pending');
+  }
+  // 真实失败状态必须显示成失败，不能因为"翻到这一步"就变绿
+  HITL_STAGES.forEach(function (st, k) {
+    var s = _stepByName((data && data.step_status) || [], st.step);
+    if (s && s.status === 'failed') map[3 + k] = 'failed';
+    if (s && s.status === 'skipped') map[3 + k] = 'skipped';
+  });
+  renderStepper(map);
+}
+
+function hitlStepBy(root, delta) {
+  var idx = parseInt(root.dataset.stage || '0', 10) + delta;
+  hitlShowStage(root, idx, root._hitlData || null);
+  var card = root.querySelector('[data-hitl-card][style*="block"]') ||
+             root.querySelectorAll('[data-hitl-card]')[idx];
+  if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function renderHitlResume(data, targets) {
   targets = Array.isArray(targets) ? targets : [targets];
+  targets = targets.filter(Boolean);
+  if (!targets.length) { toast('未找到结果容器'); return; }
+  var sid = data.session_id || _hitlSession || '';
   var steps = data.step_status || [];
-  var stepHtml = steps.map(function (s, i) {
-    var color = s.status === 'ok' ? 'var(--green)' : (s.status === 'failed' ? 'var(--red)' : 'var(--text-dim)');
-    var mark = s.status === 'ok' ? '✓' : (s.status === 'failed' ? '✗' : '–');
-    return '<div style="font-size:12px;line-height:1.9">' + String(i + 1).padStart(2, '0') + '. ' +
-      esc(s.label || s.name) + ' <span style="color:' + color + ';font-weight:700">' + mark + '</span>' +
-      (s.detail ? ' <span style="color:var(--text-muted)">' + esc(s.detail) + '</span>' : '') + '</div>';
-  }).join('');
-
   var adj = data.adjudication || {};
-  var head = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">' +
-    '裁决：剔除 ' + ((adj.rejected || []).length) + ' · 合并 ' + ((adj.merged || []).length) +
-    ' · 保留 ' + (adj.kept || 0) + ' · 未译 ' + (adj.untranslated || 0) +
-    ' → 入库 ' + (data.termbase_terms || 0) + ' 条（术语库 ' + esc(data.termbase_name || '') + '）</div>';
 
-  var trans = (data.full_translation && data.full_translation.trim())
-    ? '<h4 style="margin-top:14px;margin-bottom:6px">全文翻译</h4>' +
-      '<pre style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;' +
-      'font-size:12.5px;line-height:1.8;white-space:pre-wrap;word-break:break-word;max-height:320px;' +
-      'overflow-y:auto;margin:0">' + esc(data.full_translation) + '</pre>'
-    : '<div style="margin-top:12px;font-size:12px;color:var(--red)">全文翻译未产出（见上方步骤状态）</div>';
+  var summary = '裁决：剔除 ' + ((adj.rejected || []).length) +
+    ' · 合并 ' + ((adj.merged || []).length) +
+    ' · 保留 ' + (adj.kept || 0) +
+    ' · 未译 ' + (adj.untranslated || 0) +
+    ' → 入库 ' + (data.termbase_terms || 0) + ' 条';
 
-  var gl = (data.glossary || []).map(function (g) {
-    var tag = (g.verdict && g.verdict !== 'accepted')
-      ? ' <span style="font-size:10px;color:var(--accent)">[' + esc(g.verdict) + ']</span>' : '';
-    var mf = (g.merged_from && g.merged_from.length)
-      ? ' <span style="font-size:10px;color:var(--text-dim)">← ' + esc(g.merged_from.join(', ')) + '</span>' : '';
-    return '<div style="font-size:12px;line-height:1.9">' + esc(g.term) +
-      ' → <span style="color:var(--green)">' + esc(g.translation) + '</span>' + tag + mf + '</div>';
+  var tabs = HITL_STAGES.map(function (st, i) {
+    var s = _stepByName(steps, st.step) || {};
+    var dot = s.status === 'ok' ? '●' : (s.status === 'failed' ? '✕' : '○');
+    var color = s.status === 'failed' ? 'var(--red)' : 'inherit';
+    return '<button data-hitl-tab="' + i + '" onclick="hitlShowStage(this.closest(\'.hitl-stages\'), ' + i +
+      ', this.closest(\'.hitl-stages\')._hitlData)" ' +
+      'style="font-size:11.5px;padding:5px 11px;border-radius:20px;border:1px solid var(--border);' +
+      'background:var(--bg);color:var(--text-muted);cursor:pointer;white-space:nowrap">' +
+      '<span style="color:' + color + '">' + dot + '</span> ' + esc(st.label) + '</button>';
   }).join('');
 
-  var errs = (data.errors || []).length
-    ? '<div style="margin-top:10px;font-size:12px;color:var(--red);line-height:1.7">⚠ ' +
-      esc(data.errors.join(' ｜ ')) + '</div>' : '';
-  var expKeys = Object.keys(data.exports || {});
-  var exp = expKeys.length
-    ? '<div style="margin-top:8px;font-size:11px;color:var(--text-dim)">已导出：' + esc(expKeys.join(', ')) + '</div>' : '';
-  var cs = data.case || {};
-  var caseHtml = cs.download_url
-    ? '<div style="margin-top:10px"><button class="btn btn-sm btn-secondary" data-url="' +
-      escAttr(cs.download_url) + '" onclick="window.location.href=this.dataset.url">' +
-      '⤓ 导出个案数据包 (ZIP)</button></div>' : '';
+  var cards = HITL_STAGES.map(function (st, i) {
+    var s = _stepByName(steps, st.step) || {};
+    var mark = s.status === 'ok' ? '✓ 完成'
+      : (s.status === 'failed' ? '✗ 失败' : (s.status === 'skipped' ? '– 跳过' : '未执行'));
+    var color = s.status === 'ok' ? 'var(--green)'
+      : (s.status === 'failed' ? 'var(--red)' : 'var(--text-dim)');
+    return '<div data-hitl-card="' + i + '" style="display:none;border:1px solid var(--border);' +
+      'border-radius:10px;padding:14px;margin-top:10px;background:var(--bg-soft,rgba(0,0,0,.02))">' +
+      '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">' +
+        '<strong style="font-size:14px">' + esc(st.label) + '</strong>' +
+        '<span style="font-size:11.5px;font-weight:700;color:' + color + '">' + mark + '</span>' +
+        (s.detail ? '<span style="font-size:11.5px;color:var(--text-muted)">' +
+          esc(s.detail) + '</span>' : '') +
+      '</div>' + _hitlStageBody(data, st.key, sid) + '</div>';
+  }).join('');
 
-  var html = '<div class="result-box"><h4>裁决后流水线结果</h4>' + head +
-    '<div style="margin-top:8px">' + stepHtml + '</div>' +
-    trans +
-    '<h4 style="margin-top:14px;margin-bottom:6px">术语表（入库值）</h4>' + gl +
-    errs + exp + caseHtml + '</div>';
+  var html = '<div class="hitl-stages" data-stage="0" style="border:1px solid var(--border);' +
+    'border-radius:12px;padding:16px;margin-top:6px">' +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+      '<h4 style="margin:0">裁决后流水线：④→⑧</h4>' +
+      '<span style="font-size:11.5px;color:var(--text-muted)">' + esc(summary) + '</span>' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">' + tabs + '</div>' +
+    cards +
+    '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;' +
+      'padding-top:12px;border-top:1px solid var(--border)">' +
+      '<button class="btn btn-sm btn-secondary" data-hitl-prev="1" ' +
+        'onclick="hitlStepBy(this.closest(\'.hitl-stages\'), -1)">← 上一步</button>' +
+      '<span data-hitl-count="1" style="font-size:12px;color:var(--text-muted)">第 1 / ' +
+        HITL_STAGES.length + ' 步</span>' +
+      '<button class="btn btn-sm btn-primary" data-hitl-next="1" style="margin-left:auto" ' +
+        'onclick="hitlStepBy(this.closest(\'.hitl-stages\'), 1)">下一步</button>' +
+    '</div></div>';
+
   targets.forEach(function (t) {
-    if (t) { t.style.display = 'block'; t.innerHTML = html; }
+    t.style.display = 'block';
+    t.innerHTML = html;
+    var root = t.querySelector('.hitl-stages');
+    if (root) {
+      root._hitlData = data;
+      hitlShowStage(root, 0, data);
+    }
   });
 }
 
@@ -2857,7 +3063,7 @@ function renderTranslationAnalysis(ta) {
 //  流水线页：模式切换 · 阶段条 · 检查点
 // ═══════════════════════════════════════════════════════════════
 var _pipelineMode = 'hitl';
-var PIPELINE_STAGES = ['① 分析', '② 提取', '③ 译员裁决', '④ 术语表', '⑤ 全文翻译', '⑥ 术语库', '⑦ 报告', '⑧ 导出'];
+// PIPELINE_STAGES 在脚本最前面声明（见文件顶部注释）
 
 function setPipelineMode(mode) {
   _pipelineMode = (mode === 'auto') ? 'auto' : 'hitl';
@@ -2890,8 +3096,10 @@ function renderStepper(map) {
   }).join('');
 }
 
-var _RESUME_STAGE = { glossary: 3, full_translate: 4, termbase: 5, report: 6, export: 7 };
-
+// 由真实 step_status 推导顶部阶段条（_RESUME_STAGE 在脚本最前面声明）
+// 注意：这个函数会把 step_status 里所有已完成的步骤一次性刷绿。
+// 检查点页面**不要**用它——那会变成「全绿了却没有下一步」。
+// 分步视图请用 renderHitlResume → hitlShowStage（它按当前步骤画阶段条）。
 function renderStepperFromResume(data) {
   var map = { 0: 'ok', 1: 'ok', 2: 'ok' };
   (data.step_status || []).forEach(function (s) {
@@ -2933,7 +3141,8 @@ async function startPipeline() {
       panel.style.display = 'block';
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    toast('② 提取完成：' + _hitlTerms.length + ' 项候选 —— 已停在第 ③ 步，请裁决');
+    toast('② 提取完成：' + _hitlTerms.length + ' 项候选 · 已预填译文 ' +
+      ((data.translation_prefill && data.translation_prefill.filled) || 0) + ' 条 —— 已停在第 ③ 步，请裁决');
   } catch (e) {
     toast('提取失败: ' + e.message);
   } finally {
@@ -2973,11 +3182,23 @@ function resetCheckpoint() {
     _hitlTerms = s.terms || [];
     _hitlTopN = (s.params && s.params.top_n) || 30;
     _verdicts = {}; _edits = {}; _merges = {}; _addedRows = [];
+    var pre = 0;
+    (_hitlTerms || []).forEach(function (t) { if ((t.translation || '').trim()) pre++; });
     renderHitlTable();
-    renderStepper({ 0: 'ok', 1: 'ok', 2: 'current' });
     var panel = document.getElementById('pipeline-checkpoint');
     if (panel) panel.style.display = 'block';
-    toast('已恢复上次的检查点（' + _hitlTerms.length + ' 项候选待裁决）');
+    if (s.has_result && s.result) {
+      // 裁决已跑完：直接把 ④→⑧ 的结果还原出来（含报告与下载链接），
+      // 否则一刷新就"报告没了、下一步也没了"，看起来像功能坏了。
+      var targets = ['pipeline-hitl-result', 'hitl-result']
+        .map(function (id) { return document.getElementById(id); })
+        .filter(Boolean);
+      renderHitlResume(s.result, targets);
+      toast('已恢复上次的裁决结果（④→⑧ 全部完成，可继续查看或下载）');
+    } else {
+      renderStepper({ 0: 'ok', 1: 'ok', 2: 'current' });
+      toast('已恢复上次的检查点（' + _hitlTerms.length + ' 项候选待裁决 · 已预填译文 ' + pre + ' 条）');
+    }
   }).catch(function () {
     try { sessionStorage.removeItem('termprep-hitl-session'); } catch (e2) {}
   });
