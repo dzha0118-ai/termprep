@@ -145,9 +145,18 @@ markers = {
     "报告下载端点": "/report",
     "术语表 CSV 下载": "export/csv",
     "空译文补译入口": "补译",
+    # A10：提取诊断与「加回候选」
+    "提取诊断面板": 'id="hitl-diagnosis"',
+    "诊断渲染函数": "renderHitlDiagnosis",
+    "加回候选函数": "addBackRejected",
+    "加回候选按钮": "全部加回候选",
 }
 for label, needle in markers.items():
     check(f"前端含 {label}", needle in html, f"'{needle}'")
+
+# A10：与顶部模式切换重复的「流水线模板」下拉框应已删除
+for gone in ("pipeline-template", "stepsByTemplate"):
+    check(f"前端已移除 {gone}", gone not in html, f"'{gone}' 仍存在")
 
 # ── 3. 鉴权门禁（只探测 GET /api/debug/env，无副作用）──
 print("\n[3] 鉴权门禁（anon GET /api/debug/env，无副作用）")
@@ -253,6 +262,30 @@ check("definition 与 word 不同（§5.5）",
       f"{[(r.get('word'), (r.get('definition') or '')[:24]) for r in results][:4]}")
 check("含 sources_used / sources_failed 新字段",
       "sources_used" in sc and "sources_failed" in sc, "")
+
+# ── 6. 提取诊断：短文本/无实词必须给出原因（A10）──
+print("\n[6] 提取诊断（检查点 start，1 次无副作用计算）")
+time.sleep(1)
+st, txt = post("/api/pipeline/start",
+               {"text": "译前术语准备对翻译质量的影响", "project_name": "live-diag",
+                "top_n": 10, "prefill_translations": False})
+dg = {}
+try:
+    dg = json.loads(txt)
+except Exception:
+    pass
+diag = dg.get("diagnostics") or {}
+check("POST /api/pipeline/start 200", st == 200, f"HTTP {st}")
+check("返回 diagnostics（A10）", isinstance(diag, dict) and bool(diag), f"{list(diag)[:6]}")
+check("短文本 code=short-text", diag.get("code") == "short-text", f"code={diag.get('code')}")
+check("hint 明确可读（不是空字符串）", bool((diag.get("hint") or "").strip()),
+      f"hint={(diag.get('hint') or '')[:60]}")
+check("diagnostics 带文本统计", all(k in diag for k in ("chars", "extracted", "kept")),
+      f"chars={diag.get('chars')} extracted={diag.get('extracted')} kept={diag.get('kept')}")
+check("返回 rejected 列表（可加回候选）", isinstance(dg.get("rejected"), list),
+      f"rejected={len(dg.get('rejected') or [])}")
+ver = dg.get("verification") or {}
+check("verification 结构完整", "used" in ver and "dropped" in ver, f"{ver}")
 
 # ── 汇总 ──
 print("\n" + "=" * 78)
