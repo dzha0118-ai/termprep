@@ -1,0 +1,6 @@
+live_test_space.py：更新前端标记，补上检查点分步下载的检查（42→48 项）
+
+- 「裁决列」旧的断言查 id="verdict- ，而该实现正因 onclick 里塞 JSON.stringify
+  会把属性截断、按钮变死键而被移除，改为 data-v / verdict-chip
+- 新增标记：data-hitl-card、data-hitl-next、/report、export/csv、补译
+- 线上实测 48/48 通过

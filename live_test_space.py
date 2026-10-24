@@ -130,12 +130,21 @@ check("有 ETag / 缓存头", bool(hdrs.get("etag")),
 markers = {
     "全文翻译渲染区块": 'id="pipeline-translation"',
     "真实步骤状态": "step_status",
-    "裁决列": 'id="verdict-',
+    # 裁决按钮现在走 data-* 而不是 id="verdict-N"：旧的 onclick 里塞
+    # JSON.stringify 会把属性截断，按钮变成死键（历史 bug），故改为 data 属性
+    "裁决按钮(采纳/剔除/修正/合并)": 'data-v="accepted"',
+    "裁决按钮类名": "verdict-chip",
     "管理员令牌输入": 'id="admin-token"',
     "P4 复核提示": "rejected",
     "score_breakdown": "score_breakdown",
     "also_from 双源印证": "also_from",
     "新领域标签(翻译研究)": "翻译研究",
+    # A9：裁决后的 ④→⑧ 分步视图与真实下载
+    "检查点分步卡片": "data-hitl-card",
+    "「下一步」按钮": "data-hitl-next",
+    "报告下载端点": "/report",
+    "术语表 CSV 下载": "export/csv",
+    "空译文补译入口": "补译",
 }
 for label, needle in markers.items():
     check(f"前端含 {label}", needle in html, f"'{needle}'")
