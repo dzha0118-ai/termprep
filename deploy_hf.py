@@ -42,6 +42,30 @@ def _git(*args: str, cwd: Path, proxy: str = "") -> tuple[int, str]:
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
+def _force_rmtree(path: Path) -> None:
+    """彻底删除目录。
+
+    Windows 上 git 对象是只读的，`shutil.rmtree(..., ignore_errors=True)` 会**静默失败**
+    并在 %TEMP% 里留下一整个克隆（每个约 1.7 MB）。所以这里先去掉只读位再删。
+    """
+    def _retry(func, target, _exc):
+        try:
+            os.chmod(target, 0o700)
+            func(target)
+        except Exception:
+            pass
+
+    for _ in range(3):
+        if not path.exists():
+            return
+        try:
+            shutil.rmtree(path, onexc=_retry)        # Python 3.12+
+        except TypeError:
+            shutil.rmtree(path, onerror=_retry)      # 旧版
+        except Exception:
+            pass
+
+
 def _detect_proxy() -> str:
     """Windows 系统代理 git 不会自动使用，从注册表读出来。"""
     if os.name != "nt":
@@ -194,7 +218,9 @@ def main() -> int:
         if args.keep:
             print(f"临时目录保留在: {work}")
         else:
-            shutil.rmtree(tmp, ignore_errors=True)
+            _force_rmtree(tmp)
+            if tmp.exists():
+                print(f"⚠ 临时目录未能完全删除，请手动清理: {tmp}")
 
 
 if __name__ == "__main__":
