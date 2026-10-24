@@ -261,6 +261,7 @@ class PipelineIn(BaseModel):
     search_limit: int = 5
     db_name: Optional[str] = None
     use_ai: bool = False
+    disable_ai: bool = False   # 调用方明确关闭 AI（否则服务端有 key 就用）
     ai_engine: Optional[str] = None
     translate_mode: str = "auto"  # auto | mixed | zh2en | en2zh
     use_rag: bool = False
@@ -394,6 +395,7 @@ class PipelineResumeIn(BaseModel):
     use_rag: bool = False
     engine: str | None = None
     use_ai: bool = False
+    disable_ai: bool = False   # 调用方明确关闭 AI（否则服务端有 key 就用）
     # 词典检索「采用」的译文（前端可直接带上；服务端还会回查裁决日志）
     adopted_translations: dict[str, str] | None = None
     export_formats: list[str] | None = None
@@ -1563,7 +1565,7 @@ def create_app() -> FastAPI:
                 top_n=data.top_n,
                 search_limit=data.search_limit,
                 db_name=data.db_name,
-                use_ai=data.use_ai,
+                use_ai=data.use_ai, disable_ai=getattr(data, "disable_ai", False),
                 ai_engine=data.ai_engine,
                 translate_mode=data.translate_mode,
                 use_rag=data.use_rag,
@@ -1649,7 +1651,7 @@ def create_app() -> FastAPI:
                 text=data.text,
                 project_name=data.project_name,
                 top_n=data.top_n,
-                use_ai=data.use_ai,
+                use_ai=data.use_ai, disable_ai=getattr(data, "disable_ai", False),
                 ai_engine=data.ai_engine,
                 translate_mode=data.translate_mode,
                 use_rag=data.use_rag,
@@ -2013,7 +2015,7 @@ def create_app() -> FastAPI:
             text=sess.get("text") or "",
             project_name=project,
             top_n=data.top_n,
-            use_ai=data.use_ai,
+            use_ai=data.use_ai, disable_ai=getattr(data, "disable_ai", False),
             ai_engine=data.engine,
             translate_mode=data.translate_mode,
             use_rag=data.use_rag,

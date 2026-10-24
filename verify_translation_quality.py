@@ -310,6 +310,99 @@ finally:
     AITranslator._chat = real_chat
 check("ai_full_text_qa=false 时不做全文校对", qa_off["n"] == 0, f"校对调用 {qa_off['n']} 次")
 
+print("\n=== 10. 不许静默降级到免费引擎（用户看到「像机翻」的真正原因）===")
+# 历史 bug：前端 AI 面板默认关闭 → 请求带 use_ai=false → 流水线跳过 AI 用 Google，
+# 哪怕服务端 Secrets 里有可用 key。用户以为在用 AI，实际一路免费引擎。
+from termprep import pipeline as PIPE  # noqa: E402
+from termprep.extractor import TermEntry  # noqa: E402
+
+AI_SETTINGS = {"ai_provider": "stub", "ai_api_key": "k", "ai_model": "m",
+               "ai_base_url": "http://stub/v1", "ai_temperature": 0.3}
+PRESET = [TermEntry(term="术语管理", frequency=2, score=0.5, word_type="word")]
+PRESET_GLOSSARY = [{"term": "术语管理", "translation": "terminology management",
+                    "freq": 2, "type": "word", "verdict": "accepted", "merged_from": []}]
+
+
+def _run(settings, use_ai, disable_ai=False):
+    """跑 glossary+full_translate 两步，返回 (result, ai_calls, free_calls)。"""
+    counters = {"ai": 0, "free": 0}
+    real_chat_local = AITranslator._chat
+    real_free = PIPE._translate_text
+
+    def _chat(self, user_prompt, system_prompt="", max_tokens=None):
+        counters["ai"] += 1
+        return "术语库译文：术语管理对翻译质量有影响。"
+
+    def _free(text, src, tgt):
+        counters["free"] += 1
+        return "免费引擎译文。"
+
+    AITranslator._chat = _chat
+    PIPE._translate_text = _free
+    try:
+        res = PIPE.run_pipeline(
+            text="Terminology management affects translation quality.",
+            project_name="downgrade", top_n=5, use_ai=use_ai, disable_ai=disable_ai,
+            settings=settings, steps=["glossary", "full_translate"],
+            preset_terms=PRESET, preset_glossary=PRESET_GLOSSARY,
+            export_formats=[])
+    finally:
+        AITranslator._chat = real_chat_local
+        PIPE._translate_text = real_free
+    return res, counters
+
+
+res1, c1 = _run(AI_SETTINGS, use_ai=False, disable_ai=False)
+fs1 = next((s for s in res1.step_status if s["name"] == "full_translate"), {})
+check("服务端有 key 时，前端不带 AI 配置也会走 AI", c1["ai"] >= 1, f"AI 调用 {c1['ai']} 次")
+check("此时完全不动免费引擎", c1["free"] == 0, f"免费引擎调用 {c1['free']} 次")
+check("步骤里写明实际引擎（AI）", "AI" in (fs1.get("detail") or ""), f"{fs1.get('detail')}")
+
+res2, c2 = _run(AI_SETTINGS, use_ai=True, disable_ai=True)
+fs2 = next((s for s in res2.step_status if s["name"] == "full_translate"), {})
+check("disable_ai=True 时确实不用 AI", c2["ai"] == 0 or c2["free"] >= 1,
+      f"AI {c2['ai']} / 免费 {c2['free']}")
+check("步骤里写明是免费引擎", "免费引擎" in (fs2.get("detail") or ""), f"{fs2.get('detail')}")
+check("免费引擎时给用户明确提示", any("免费引擎" in e for e in res2.errors), f"{res2.errors[:2]}")
+
+res3, c3 = _run({}, use_ai=True, disable_ai=False)   # 没有任何 key
+check("没有 key 时不假装用了 AI", c3["free"] >= 1, f"免费 {c3['free']}")
+
+print("\n=== 11. 免费引擎兜底也要保住段落结构 ===")
+import sys as _sys  # noqa: E402
+import types as _types  # noqa: E402
+
+
+class _FakeResp:
+    status_code = 200
+
+    def __init__(self, payload):
+        self._p = payload
+
+    def json(self):
+        return self._p
+
+
+_fake_requests = _types.SimpleNamespace(
+    get=lambda url, **kw: _FakeResp([[["译文片段。", "src", None, None]]])
+)
+_old_requests = _sys.modules.get("requests")
+_sys.modules["requests"] = _fake_requests
+_old_avail = PIPE._google_translate_available
+PIPE._google_translate_available = lambda: True
+try:
+    THREE_PARAS = "First paragraph here.\nSecond paragraph here.\nThird paragraph here."
+    got = PIPE._translate_text(THREE_PARAS, "en", "zh-CN")
+finally:
+    PIPE._google_translate_available = _old_avail
+    if _old_requests is not None:
+        _sys.modules["requests"] = _old_requests
+    else:
+        _sys.modules.pop("requests", None)
+
+out_paras = [p for p in got.split("\n\n") if p.strip()]
+check("免费引擎按段落翻译（3 段进 3 段出）", len(out_paras) == 3, f"得到 {len(out_paras)} 段：{got[:80]!r}")
+
 print("\n" + "=" * 64)
 print(f"PASS: {len(PASS)}   FAIL: {len(FAIL)}")
 print("=" * 64)

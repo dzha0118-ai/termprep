@@ -984,12 +984,13 @@ tr.hitl-added{background:var(--green-soft)}
             <option value="ollama">Ollama (本地)</option>
             <option value="custom">自定义 OpenAI-compatible</option>
           </select>
-          <div class="hint">不选 = 纯免费模式</div>
+          <div class="hint">不选 = 使用服务端已配置的 AI（若服务端也没配，则走免费引擎）</div>
         </div>
         <div class="form-group">
           <label for="ai-api-key">API Key</label>
           <input type="password" id="ai-api-key" placeholder="sk-...">
-          <div class="hint">仅保存在浏览器会话，不上传服务器</div>
+          <div class="hint">留空即可：服务端配置了密钥就会自动用服务端的 AI。
+            这里填的 key 仅保存在浏览器会话，不上传服务器。</div>
         </div>
         <div class="form-group">
           <label for="ai-model">模型</label>

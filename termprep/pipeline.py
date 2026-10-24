@@ -85,6 +85,7 @@ def run_pipeline(
     export_formats: list[str] | None = None,
     notes: str = "",
     use_ai: bool = False,
+    disable_ai: bool = False,  # 调用方**明确**要求关闭 AI（否则有 key 就会用）
     ai_engine: str | None = None,
     translate_mode: str = "auto",  # NEW: "auto" | "mixed" | "zh2en" | "en2zh"
     use_rag: bool = False,
@@ -129,6 +130,22 @@ def run_pipeline(
     )
     start = time.time()
     active_settings = _pipeline_settings(settings)
+
+    # ── 关键：不要因为调用方"没传 AI 配置"就静默退化成免费引擎 ──
+    # 历史 bug：前端 _aiConfig.enabled 默认 false，于是请求带 use_ai=false，
+    # 流水线就跳过 AI 去用 Google，**哪怕服务端 Secrets 里明明有可用的 key**。
+    # 用户看到的就是"AI 明明配了，译文却像机翻"。
+    # 现在的语义：只有 disable_ai=True 才算"明确关闭"，否则服务端有 key 就用。
+    ai_key_present = bool((active_settings.get("ai_api_key") or "").strip())
+    ai_auto_enabled = False
+    if disable_ai:
+        use_ai = False
+    elif not use_ai and ai_key_present:
+        use_ai = True
+        ai_auto_enabled = True
+    if use_ai and not ai_key_present:
+        # 调用方要求用 AI 但没有任何 key：如实说明，而不是假装用过
+        use_ai = False
 
     # ── Step bookkeeping ──
     # ``steps`` (when given) restricts the run to the template's declared steps,
@@ -409,8 +426,25 @@ def run_pipeline(
             # an empty result was reported identically to a step that never ran —
             # exactly the "看不到第四步全文翻译" symptom.
             if result.full_translation and result.full_translation.strip():
-                _mark("full_translate", "全文翻译", "ok",
-                      f"{len(result.full_translation)} 字符", _t0)
+                # 步骤里写清**实际**是哪条链路产出的译文。用户曾以为自己在用 AI，
+                # 实际一路都是免费引擎，而界面只显示"N 字符"，根本看不出降级。
+                _qa_meta = result.translation_qa or {}
+                _prov = (_qa_meta.get("provider") or "").strip()
+                _model = (_qa_meta.get("model") or "").strip()
+                if _prov:
+                    _engine_note = f"AI {_prov}/{_model}" if _model else f"AI {_prov}"
+                else:
+                    _engine_note = "免费引擎（未走 AI）"
+                if ai_auto_enabled and _prov:
+                    _engine_note += "（服务端自动启用）"
+                _note = f"{len(result.full_translation)} 字符 · {_engine_note}"
+                if not _prov:
+                    result.errors.append(
+                        "全文翻译由免费引擎生成（质量有限）。"
+                        "若服务端已配置 TERMPREP_AI_API_KEY 仍未走 AI，请检查 AI 引擎健康状态；"
+                        "也可在页面「AI 设置」里填自己的 key 后重试。"
+                    )
+                _mark("full_translate", "全文翻译", "ok", _note, _t0)
             else:
                 _why = result.errors[-1] if result.errors else "翻译引擎未返回内容"
                 result.errors.append(
@@ -611,38 +645,69 @@ def _translate_en_to_cn(text: str) -> str:
 
 
 def _translate_text(text: str, src: str, tgt: str) -> str:
-    """Translate full text using Google Translate with short timeouts per chunk."""
+    """用免费引擎（Google）翻译全文，并**保留段落结构**。
+
+    旧实现把整篇按句子切成 1500 字一块，再用 "\\n\\n" 硬拼——段落数是假的，
+    读起来就是"糊成一大坨"。现在先按段落分组，段内超长才切句，
+    译文按原段落拼回；配合 normalize_target_text 收拾标点空格。
+    """
     if not _google_translate_available():
         return ""
     try:
-        import urllib.parse, requests
-        chunks = []
-        buf = ""
-        for s in re.split(r'(?<=[.!?。！？])\s+', text):
-            if len(buf) + len(s) < 1500: buf += s
-            else:
-                if buf.strip(): chunks.append(buf.strip())
-                buf = s
-        if buf.strip(): chunks.append(buf.strip())
+        import urllib.parse
+        import requests
 
-        results = []
-        for c in chunks:
-            encoded = urllib.parse.quote(c)
-            url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={src}&tl={tgt}&dt=t&q={encoded}"
-            try:
-                resp = requests.get(url, timeout=2, headers={"User-Agent": "Mozilla/5.0"})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if isinstance(data, list) and data and isinstance(data[0], list):
-                        parts = [s[0] for s in data[0] if isinstance(s, (list, tuple)) and s and s[0]]
-                        if parts: results.append(" ".join(parts))
-            except Exception:
-                _mark_google_unavailable()
-                break
-            time.sleep(0.05)
-        return "\n\n".join(results) if results else ""
-    except Exception: pass
-    return ""
+        norm = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if re.search(r"\n\s*\n", norm):
+            paragraphs = re.split(r"\n\s*\n", norm)
+        else:
+            # 没有空行时，单换行就是唯一的段落信息（讲稿 / PDF 抽取常见）
+            paragraphs = norm.split("\n")
+
+        def _chunk_para(para: str, limit: int = 1500) -> list[str]:
+            pieces, buf, start = [], "", 0
+            for m in re.finditer(r"[.!?。！？]+[\u201d\"'\uff09)\]]*\s+", para):
+                if m.end() - start >= limit:
+                    piece = para[start:m.end()].strip()
+                    if piece:
+                        pieces.append(piece)
+                    start = m.end()
+            tail = para[start:].strip()
+            if tail:
+                pieces.append(tail)
+            return pieces or ([para.strip()] if para.strip() else [])
+
+        def _google(chunk: str) -> str:
+            encoded = urllib.parse.quote(chunk)
+            url = (f"https://translate.googleapis.com/translate_a/single"
+                   f"?client=gtx&sl={src}&tl={tgt}&dt=t&q={encoded}")
+            resp = requests.get(url, timeout=5, headers={"User-Agent": "Mozilla/5.0"})
+            if resp.status_code != 200:
+                return ""
+            data = resp.json()
+            if isinstance(data, list) and data and isinstance(data[0], list):
+                parts = [s[0] for s in data[0]
+                         if isinstance(s, (list, tuple)) and s and s[0]]
+                if parts:
+                    return "".join(parts).strip()
+            return ""
+
+        translated_paras: list[str] = []
+        for para in paragraphs:
+            if not para.strip():
+                continue
+            out_parts = []
+            for piece in _chunk_para(para):
+                tr = _google(piece)
+                if tr:
+                    out_parts.append(tr)
+                time.sleep(0.05)
+            if out_parts:
+                translated_paras.append(" ".join(out_parts))
+        return "\n\n".join(translated_paras)
+    except Exception:
+        _mark_google_unavailable()
+        return ""
 
 
 def _find_context(text: str, term: str) -> str:
