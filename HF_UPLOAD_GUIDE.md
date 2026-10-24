@@ -11,27 +11,50 @@
 HF Space 网页的「拖拽上传」只会**新增 / 覆盖**文件，**永远不会删除**文件。
 所以只要拖拽上传，被改名或被删除的旧文件就会一直留在 Space 里。
 
-两个解决办法：
+> **这不是理论问题**：本项目实测时 Space 里已经积了 **266 个残留文件**——
+> `backend/`、`frontend/`、`docs/`、`sources/`、`reports/`、`__pycache__/`、
+> 根目录一整套重复的 `*.py`，甚至一个被误提交的 `.env`（值为占位符，已核对无真实密钥）。
+> 用 git 推送一次性清干净了。
 
-1. **git push（推荐，一条命令根治）** —— git 会同步删除，不留任何旧文件。
-2. 继续拖拽上传，但必须遵守「固定文件名覆盖」规则 + 手动清理。
+三个办法：
+
+1. **`python deploy_hf.py`（最推荐）** —— 自动克隆 → 全量同步 `hf_deploy/` → 推送，
+   多余文件一并删除。见方式一。
+2. **手动 git push** —— 同样会同步删除，但把仓库整个 `master` 推上去会把测试脚本
+   也带进 Space（见"Dockerfile 之外的注意事项"）。
+3. 继续拖拽上传 —— 必须遵守「固定文件名覆盖」规则 + 定期手动删残留（方式二）。
 
 ---
 
-## 方式一：git push（推荐）
+## 方式一：`deploy_hf.py`（推荐）
 
 ```bash
-git status                 # 1. 查看改动
-git add -A
-git commit -m "HITL 检查点 + 术语提取重构 + 可复现数据包"
-git push hf master         # 2. 推送到 Space，自动触发 Docker 重建
+python build_hf_bundle.py     # 1. 由源码生成干净文件集 hf_deploy/（63 个文件）
+python deploy_hf.py --dry-run # 2. 预览：会同步哪些文件、清掉哪些残留
+python deploy_hf.py           # 3. 真正部署（Space 自动重建）
 ```
 
-推送后 HF 会用 `Dockerfile` 重新构建，日志在 Space 的 **Settings → Logs**。
+脚本做的事：克隆 Space → **清空**（保留 `.git`）→ 写入 `hf_deploy/` 全部内容
+→ 逐文件校验一致 → 提交 → 推送。所以 Space 上永远不会积累残留。
+
+可用参数：
+
+| 参数 | 说明 |
+|---|---|
+| `--repo dzha0118/termprep` | Space 仓库 id |
+| `--message "..."` | 自定义提交信息 |
+| `--proxy http://127.0.0.1:7892` | **本机系统代理时必须加**（见下） |
+| `--dry-run` | 只看不改 |
+| `--keep` | 保留临时克隆目录，便于排查 |
+
+> ### ⚠️ 系统代理的坑（本次真实踩到）
+> 本机开着 `127.0.0.1:7892` 的系统代理时，**Python / 浏览器能连外网，但 git 不会用系统代理**，
+> 表现是 `Failed to connect to huggingface.co port 443 after 21000 ms`。
+> `deploy_hf.py` 会从注册表自动读出代理并传给 git；手动推送则要自己加
+> `-c http.proxy=http://127.0.0.1:7892`。
 
 > - 首次推送若要求认证，用 HF Access Token 当密码：https://huggingface.co/settings/tokens
-> - 本地从未提交过的话，先设一次身份：
->   `git config --global user.name "你的名字"` 与 `git config --global user.email "你的邮箱"`
+> - 身份没配的话脚本会用本仓库的 `user.name` / `user.email` 兜底。
 
 ---
 

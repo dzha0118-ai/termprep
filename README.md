@@ -100,12 +100,25 @@ python -m uvicorn web_entry:app --host 127.0.0.1 --port 8672
 
 ## 🐳 部署到 Hugging Face Space
 
-Space 需为 **Docker** 类型。把仓库内容（`Dockerfile`、`termprep/`、`web/`、`web_entry.py`、
-`pyproject.toml`、`requirements.txt`）推到 Space 仓库即可。
+Space 需为 **Docker** 类型。仓库里带两个部署工具（都不随镜像发布）：
+
+```bash
+python build_hf_bundle.py      # 由源码生成干净文件集 hf_deploy/（63 个文件）
+python deploy_hf.py --dry-run  # 预览会同步/清理哪些文件
+python deploy_hf.py            # 全量同步并推送，Space 自动重建
+```
+
+> ⚠️ **不要用网页拖拽上传更新。** HF 的拖拽只会新增/覆盖，**永不删除**——
+> 本项目实测时 Space 里已累积 **266 个残留文件**（`backend/`、`frontend/`、`docs/`、
+> `__pycache__/`、根目录重复的 `*.py`，以及一个被误提交的 `.env`）。
+> `deploy_hf.py` 先清空再写入，并逐文件校验一致后才推送。
 
 > ⚠️ `Dockerfile` 里刻意用 **`gunicorn -w 1`**：检查点会话/裁决日志/翻译记忆都在容器内 SQLite，
 > 多 worker 会导致 `/start` 与 `/resume` 落到不同进程而报「session not found」。
 > 另设 `--timeout 300`，避免长 AI 调用被默认 30s 超时杀掉。
+
+> 💡 本机开着系统代理时，**git 不会自动走系统代理**（表现为 `Failed to connect to huggingface.co port 443`）。
+> `deploy_hf.py` 会从注册表自动读取并传给 git；手动推送需加 `-c http.proxy=http://127.0.0.1:7892`。
 
 ### 需要配置的 Secrets
 

@@ -539,6 +539,8 @@ POST /api/pipeline/{sid}/resume → HTTP 404  "该检查点会话已过期或不
 | `eval_term_extraction.py` | 术语提取质量评测；`--check` 为回归门禁，`--show` 逐条标注 gold/lenient/ok-extra/JUNK |
 | `eval_termset.json` | 内部金标准集（4 篇文本 · 57 个金标准术语） |
 | `live_test_space.py` | 线上 Space **只读**体检（42 项，绝不触碰写入/破坏性端点） |
+| `build_hf_bundle.py` | 由源码生成拖拽/部署用的干净文件集 `hf_deploy/`；`--check` 校验一致性 |
+| `deploy_hf.py` | **全量 git 部署到 Space**：克隆 → 清空 → 写入 `hf_deploy/` → 逐文件校验 → 推送。`--dry-run` 只预览；自动读取 Windows 系统代理 |
 
 前 5 套只使用本地 `TestClient` 与桩引擎，不访问线上实例、不消耗任何付费额度；
 `live_test_space.py` 是唯一打线上的脚本，且只调用只读端点 + 3 次无副作用计算端点。
