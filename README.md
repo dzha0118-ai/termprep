@@ -53,7 +53,11 @@ pinned: false
 - **英文规则名词短语分块**：jieba 把英文一律标 `eng`，词性通道对英文无效，故单列一套
 - **可解释评分**：`score = 0.4·频次 + 0.3·词表命中 + 0.2·长度 + 0.1·形态`，并返回 `score_breakdown`
 - **可选 AI 语义复核**（P4）：一次批量调用剔掉"形态合法但非术语"的描述性短语；
-  未配置 AI、调用失败或回复不可解析时**完全不改动候选**
+  未配置 AI、调用失败或回复不可解析时**完全不改动候选**；
+  若复核想把**整批候选都删掉**则不采信（保留原候选并标记 `fallback`），
+  被剔掉的项也会回传给前端，可一键「加回候选」
+- **提取不出来时不再静默**：`diagnostics` 会说明原因——文本太短（建议 ≥300 字）、
+  几乎是数字/符号、还是被 AI 剔太多（可加回）
 - 内部评测集：4 篇文本 · 57 个金标准术语，`eval_term_extraction.py --check` 作为回归门禁
 
 ### 检索与翻译
@@ -163,8 +167,9 @@ python deploy_hf.py            # 全量同步并推送，Space 自动重建
 | 套件 | 覆盖 |
 |---|---|
 | `verify_hitl.py` | 检查点全链路（44 项）：start → 剔除/修正/合并/新增 → resume，逐项核对**真实术语库** |
-| `verify_frontend_ui.py` | 前端静态一致性（34 项）：id 唯一、`getElementById` 目标存在、内联处理函数已定义、后端字段有渲染、下载按钮指向真实接口（**零依赖**） |
-| `verify_ui_e2e.js` | UI 端到端（40 项，可选）：jsdom 加载真实页面驱动真实接口，点「下一步」并**真的下载**报告/CSV/JSON/ZIP（需 `npm i --no-save jsdom`） |
+| `verify_extraction_diagnosis.py` | 「为什么提取不出来」（38 项）：AI 清空候选时的兜底、5 种诊断 code、剔除项可加回、刷新可恢复 |
+| `verify_frontend_ui.py` | 前端静态一致性（48 项）：id 唯一、`getElementById` 目标存在、内联处理函数已定义、后端字段有渲染、下载按钮指向真实接口（**零依赖**） |
+| `verify_ui_e2e.js` | UI 端到端（50 项，可选）：jsdom 加载真实页面驱动真实接口，点「下一步」并**真的下载**报告/CSV/JSON/ZIP（需 `npm i --no-save jsdom`） |
 | `verify_hitl_storage.py` | 检查点存储的**多进程并发**稳定性（4 进程 × 60 次读写） |
 | `verify_acceptance.py` | 安全与功能验收（40 项） |
 | `verify_pipeline_fixes.py` | 流水线步骤/全文翻译回归（29 项） |
@@ -216,6 +221,7 @@ python eval_term_extraction.py --check
 - **高亮**：`target_span` 与译文强对齐，杜绝误导
 - **领域**：新增 `academic` / `translation` / `humanities`，扩表 + 词边界匹配
 - **流水线**：真实 `step_status`、模板真正生效、全文翻译可见、SSE 真推送
+- **交互精简**：删除与顶部模式切换重复的「流水线模板」下拉框；全自动进度不再伪造步骤名
 - **HITL**：检查点机制 + 页面阶段条 + 五种裁决 + 会话刷新可恢复
 - **数据留存**：裁决日志 + 可复现个案数据包；修正数据目录静默回退
 - **修复**：多 worker 导致检查点会话丢失（改单 worker + 读路径纯读 + busy_timeout）

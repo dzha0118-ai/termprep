@@ -448,6 +448,87 @@ def _adopted_translations_from_log(session_id: str = "") -> dict[str, str]:
     return out
 
 
+def _apply_term_verification(
+    raw_terms: list, decisions: dict, normalise
+) -> tuple[list, list[dict], str]:
+    """把 AI 复核结论应用到候选上，并带一道「不许清空」的兜底。
+
+    为什么需要兜底：AI 语义复核有时会**把所有候选都判成非术语**（短文本、领域
+    边缘文本、模型抽样波动）。此时用户看到的就是「提取不出来术语」——但输入
+    明明有内容，只是被复核环节清空了。宁可保留候选让译员裁决（HITL 里人本来
+    就要逐条过），也不要给出一个空列表。
+
+    Returns ``(kept, dropped, fallback_note)``。
+    """
+    kept: list = []
+    dropped: list[dict] = []
+    for t in raw_terms:
+        d = decisions.get(normalise(t.term))
+        if d is not None and d.get("is_term") is False:
+            dropped.append({
+                "word": t.term,
+                "type": d.get("type", ""),
+                "reason": d.get("reason", ""),
+                "freq": getattr(t, "frequency", None),
+            })
+        else:
+            kept.append(t)
+
+    if raw_terms and not kept and dropped:
+        # AI 想把整批都删掉 —— 不采信，原样保留
+        return list(raw_terms), [], "would-drop-all"
+    return kept, dropped, ""
+
+
+def _extraction_diagnostics(
+    text: str, raw_count: int, kept_count: int, dropped_count: int
+) -> dict:
+    """解释「为什么只有这么几个（或没有）候选」。
+
+    统计类提取器（jieba TF-IDF / TextRank / YAKE / C-Value）依赖词频与共现，
+    文本太短时天然出不了几个词。用户看到空表时最需要的就是这个原因说明。
+    """
+    chars = len(text or "")
+    cn_chars = len(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    en_letters = len(re.findall(r"[a-zA-Z]", text or ""))
+    punctuation = len(re.findall(r"[^\w\s]", text or ""))
+    wordy = cn_chars + en_letters
+
+    hint = ""
+    code = "ok"
+    if kept_count == 0:
+        if wordy < 10:
+            code = "no-wordy-content"
+            hint = ("文本里几乎没有可用的词语（数字/符号为主）。请粘贴正文段落。")
+        elif raw_count == 0:
+            code = "nothing-extracted"
+            hint = (f"文本仅 {chars} 字，{wordy} 个实词字母/汉字，"
+                    "统计类提取器无法产出候选。建议提供 ≥300 字的正文。")
+        else:
+            code = "all-dropped"
+            hint = (f"提取到 {raw_count} 项但全部被过滤。可手动在下方补充术语。")
+    elif kept_count < 5 and chars < 300:
+        code = "short-text"
+        hint = (f"文本较短（{chars} 字）：统计类提取器需要一定篇幅才能产出更多术语，"
+                "建议提供 ≥300 字；也可在下方手动补充术语。")
+    if dropped_count >= 3 and not hint:
+        code = "ai-dropped-many"
+        hint = (f"AI 语义复核剔除了 {dropped_count} 项（多为通用词或描述性短语）。"
+                "如果其中包含你要的术语，点「加回候选」即可恢复。")
+
+    return {
+        "code": code,
+        "hint": hint,
+        "chars": chars,
+        "cn_chars": cn_chars,
+        "en_letters": en_letters,
+        "non_word_chars": punctuation,
+        "extracted": raw_count,
+        "kept": kept_count,
+        "dropped_by_ai": dropped_count,
+    }
+
+
 def _fill_candidate_translations(
     candidates: list[dict], client_settings: dict
 ) -> dict:
@@ -1730,16 +1811,13 @@ def create_app() -> FastAPI:
                     settings=client_settings,
                 )
                 if decisions:
-                    kept_terms, dropped = [], []
-                    for t in raw_terms:
-                        d = decisions.get(normalise_term(t.term))
-                        if d is not None and d.get("is_term") is False:
-                            dropped.append({"word": t.term,
-                                            "type": d.get("type", ""),
-                                            "reason": d.get("reason", "")})
-                        else:
-                            kept_terms.append(t)
-                    rejected_by_ai = dropped
+                    kept_terms, rejected_by_ai, fallback = _apply_term_verification(
+                        raw_terms, decisions, normalise_term
+                    )
+                    if fallback:
+                        # AI 想把整批都删掉 → 不采信，如实告诉用户
+                        verification = dict(verification, fallback=fallback,
+                                            dropped=0, note="AI 判定会清空全部候选，已保留原候选")
             except Exception as e:
                 verification = {"used": False, "reason": f"verifier error: {type(e).__name__}"}
 
@@ -1757,6 +1835,24 @@ def create_app() -> FastAPI:
                 "pos": guess_pos(t.term),
                 "translation": "",   # 供译员填写/修正
             })
+
+        # 被 AI 剔除的项也补上分数与词性：前端要能一键「加回候选」，
+        # 加回来以后排序/展示都得跟正常候选一致。
+        for r in rejected_by_ai:
+            try:
+                score, breakdown = explainable_score(
+                    r["word"], data.text, frequency=r.get("freq"),
+                    word_type=r.get("type") or "",
+                )
+                r["score"] = score
+                r["score_breakdown"] = breakdown
+            except Exception:
+                r["score"] = None
+            r["pos"] = guess_pos(r["word"])
+
+        diagnostics = _extraction_diagnostics(
+            data.text, len(raw_terms), len(candidates), len(rejected_by_ai)
+        )
 
         params = {
             "top_n": data.top_n,
@@ -1792,6 +1888,11 @@ def create_app() -> FastAPI:
             "params": params,
             "analysis": analysis_payload,
             "terms": candidates,
+            # 会话里也存诊断与 AI 剔除项：刷新页面后仍能解释"为什么这么少"、
+            # 仍能一键把 AI 剔掉的项加回候选
+            "diagnostics": diagnostics,
+            "rejected": rejected_by_ai,
+            "verification": verification,
         })
         # 存原文 + 参数：resume / 个案数据包都依赖它
         try:
@@ -1812,6 +1913,7 @@ def create_app() -> FastAPI:
             "verification": verification,
             "translation_prefill": prefill,
             "rejected": rejected_by_ai,
+            "diagnostics": diagnostics,
             "next": f"POST /api/pipeline/{session_id}/resume 提交裁决后继续",
         }
 
@@ -1840,6 +1942,9 @@ def create_app() -> FastAPI:
             "analysis": sess.get("analysis", {}),
             "terms": sess.get("terms", []),
             "terms_count": len(sess.get("terms") or []),
+            "diagnostics": sess.get("diagnostics") or {},
+            "rejected": sess.get("rejected") or [],
+            "verification": sess.get("verification") or {},
             # 裁决后已跑完 ④→⑧ 的会话，刷新页面照样能看报告、能下载
             "result": sess.get("result") or None,
             "has_result": bool(sess.get("result")),

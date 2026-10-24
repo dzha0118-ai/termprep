@@ -1230,14 +1230,6 @@ tr.hitl-added{background:var(--green-soft)}
         <label for="pipeline-name">项目名称</label>
         <input type="text" id="pipeline-name" value="MyProject" placeholder="项目名称">
       </div>
-      <div class="form-group" id="pipeline-template-wrap">
-        <label for="pipeline-template">流水线模板</label>
-        <select id="pipeline-template">
-          <option value="full-pipeline">完整流水线（全功能）</option>
-          <option value="quick-analysis">快速分析（仅分析+提取）</option>
-          <option value="agent-pipeline">Agent 增强（AI 术语+翻译）</option>
-        </select>
-      </div>
       <div class="form-group">
         <label for="pipeline-top">提取术语数</label>
         <input type="number" id="pipeline-top" value="30" min="5" max="100">
@@ -1273,6 +1265,9 @@ tr.hitl-added{background:var(--green-soft)}
         逐条点「采纳 / 剔除 / 修正 / 合并」；也可补充系统漏掉的术语。
         裁决完点下方按钮继续 ④→⑧。
       </div>
+
+      <!-- 诊断：解释"为什么只有这么几个候选"，并允许把 AI 剔掉的项加回来 -->
+      <div id="hitl-diagnosis" style="display:none;margin-bottom:10px"></div>
 
       <div class="form-row" style="margin-bottom:10px" data-term-form>
         <div class="form-group">
@@ -1952,6 +1947,8 @@ var _edits = {};          // word -> {word, translation}（修正后的值）
 var _merges = {};         // source word -> target word
 var _editingWord = '';    // 正在内联修正的行
 var _mergeSource = '';    // 合并模式下已选中的源行
+var _hitlRejected = [];   // 被 AI 复核剔除的项（可一键加回候选）
+var _hitlDiagnosis = {};  // 后端给的「为什么这么少」诊断
 
 // HTML 属性转义：原实现把 JSON.stringify(word) 塞进双引号属性，
 // 双引号会提前截断 onclick，导致裁决按钮实际不可用。
@@ -2180,9 +2177,77 @@ function renderHitlTable() {
   });
   var summary = document.getElementById('decision-summary-pipeline');
   if (summary) summary.textContent = label;
+  renderHitlDiagnosis();
   try {
     if (_hitlSession) sessionStorage.setItem('termprep-hitl-session', _hitlSession);
   } catch (e) {}
+}
+
+// 解释「为什么候选这么少 / 一条都没有」，并给出挽回入口。
+// 之前提取不出来就是一张空表 + 一句"提取完成：0 项"，用户完全不知道为什么。
+function renderHitlDiagnosis() {
+  var box = document.getElementById('hitl-diagnosis');
+  if (!box) return;
+  var d = _hitlDiagnosis || {};
+  var rej = _hitlRejected || [];
+  var parts = [];
+
+  if (d.hint) {
+    var color = (d.code === 'ok') ? 'var(--text-muted)' : 'var(--amber)';
+    var icon = (d.code === 'ok') ? 'ⓘ' : '⚠️';
+    parts.push('<div style="font-size:12px;line-height:1.8;color:' + color + '">' +
+      icon + ' ' + esc(d.hint) + '</div>');
+  }
+
+  if (rej.length) {
+    var names = rej.map(function (r) { return r.word; }).join('、');
+    parts.push('<div style="margin-top:6px;font-size:12px;line-height:1.8;color:var(--text-muted)">' +
+      'AI 语义复核剔除 <strong>' + rej.length + '</strong> 项：' +
+      esc(names.length > 80 ? names.slice(0, 80) + '…' : names) +
+      ' <button class="btn btn-sm btn-secondary" onclick="addBackRejected()" ' +
+      'style="font-size:11px;padding:2px 8px;margin-left:6px">全部加回候选</button>' +
+      '</div>');
+  }
+
+  if (d.extracted || d.chars) {
+    var stat = '文本 ' + (d.chars || 0) + ' 字（汉字 ' + (d.cn_chars || 0) +
+      ' · 字母 ' + (d.en_letters || 0) + '）· 提取 ' + (d.extracted || 0) +
+      ' 项 → 保留 ' + (d.kept || 0) + ' 项';
+    parts.push('<div style="margin-top:4px;font-size:11px;color:var(--text-dim)">' +
+      esc(stat) + '</div>');
+  }
+
+  if (!parts.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'block';
+  box.innerHTML = '<div style="border:1px solid var(--border);border-left:3px solid var(--amber);' +
+    'border-radius:8px;padding:10px 12px;background:var(--bg)">' + parts.join('') + '</div>';
+}
+
+// 把 AI 剔除的项加回候选（译员说了算）
+function addBackRejected() {
+  var rej = _hitlRejected || [];
+  if (!rej.length) return;
+  var existing = {};
+  (_hitlTerms || []).forEach(function (t) { existing[t.word] = true; });
+  var added = 0;
+  rej.forEach(function (r) {
+    if (!r || !r.word || existing[r.word]) return;
+    _hitlTerms.push({
+      word: r.word,
+      freq: r.freq || 1,
+      type: r.type || 'word',
+      score: (typeof r.score === 'number') ? r.score : 0,
+      score_breakdown: r.score_breakdown || null,
+      pos: r.pos || '',
+      translation: r.translation || '',
+    });
+    existing[r.word] = true;
+    added++;
+  });
+  _hitlRejected = [];
+  _hitlDiagnosis = {};
+  renderHitlTable();
+  toast(added ? ('已把 ' + added + ' 项加回候选，请照常裁决') : '这些项已经在候选里了');
 }
 
 function word_safe(w) { return w; }
@@ -2264,6 +2329,9 @@ function buildAdjudicationItems() {
 
 async function resumePipeline() {
   if (!_hitlSession) { toast('请先点「提取术语（进入检查点）」'); return; }
+  // 已经进入 ④→⑧，"加回候选"这类待裁决操作就没有意义了
+  _hitlRejected = []; _hitlDiagnosis = {};
+  renderHitlDiagnosis();
   var items = buildAdjudicationItems();
   // 结果渲染到流水线页与提取页各自的容器（不要用重复 id）
   var targets = ['pipeline-hitl-result', 'hitl-result']
@@ -2587,6 +2655,8 @@ async function doExtract() {
     });
     _hitlSession = data.session_id || '';
     _hitlTerms = data.terms || [];
+    _hitlRejected = data.rejected || [];
+    _hitlDiagnosis = data.diagnostics || {};
     _hitlTopN = top;
     _extractedWords = _hitlTerms;
     _decisionInputDigest = (text || '').slice(0, 80);
@@ -3075,8 +3145,6 @@ function setPipelineMode(mode) {
   var hint = document.getElementById('pipeline-hitl-hint');
   if (hint) hint.textContent = (_pipelineMode === 'hitl')
     ? '提取后会停在「译员裁决」等你决定' : '一键跑到底，中途不可干预';
-  var tpl = document.getElementById('pipeline-template-wrap');
-  if (tpl) tpl.style.display = (_pipelineMode === 'auto') ? '' : 'none';
   var cp = document.getElementById('pipeline-checkpoint');
   if (cp) cp.style.display = (_pipelineMode === 'hitl' && _hitlSession) ? 'block' : 'none';
 }
@@ -3129,6 +3197,8 @@ async function startPipeline() {
     });
     _hitlSession = data.session_id || '';
     _hitlTerms = data.terms || [];
+    _hitlRejected = data.rejected || [];
+    _hitlDiagnosis = data.diagnostics || {};
     _hitlTopN = top;
     _extractedWords = _hitlTerms;
     _decisionInputDigest = text.slice(0, 80);
@@ -3141,8 +3211,15 @@ async function startPipeline() {
       panel.style.display = 'block';
       panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    toast('② 提取完成：' + _hitlTerms.length + ' 项候选 · 已预填译文 ' +
-      ((data.translation_prefill && data.translation_prefill.filled) || 0) + ' 条 —— 已停在第 ③ 步，请裁决');
+    var diag = data.diagnostics || {};
+    if ((data.terms || []).length === 0) {
+      // 一条都没提出来时最常见的原因是文本太短或几乎是数字/符号，
+      // 必须把原因说出来，否则用户只会觉得"这功能坏了"。
+      toast('没提取到术语：' + (diag.hint || '请换一段更长的正文试试'));
+    } else {
+      toast('② 提取完成：' + _hitlTerms.length + ' 项候选 · 已预填译文 ' +
+        ((data.translation_prefill && data.translation_prefill.filled) || 0) + ' 条 —— 已停在第 ③ 步，请裁决');
+    }
   } catch (e) {
     toast('提取失败: ' + e.message);
   } finally {
@@ -3162,6 +3239,7 @@ async function acceptAllAndResume() {
 function resetCheckpoint() {
   _hitlSession = ''; _hitlTerms = []; _verdicts = {}; _edits = {}; _merges = {};
   _addedRows = []; _editingWord = ''; _mergeSource = '';
+  _hitlRejected = []; _hitlDiagnosis = {};
   try { sessionStorage.removeItem('termprep-hitl-session'); } catch (e) {}
   var cp = document.getElementById('pipeline-checkpoint');
   if (cp) cp.style.display = 'none';
@@ -3180,6 +3258,8 @@ function resetCheckpoint() {
   apiGet('/api/pipeline/' + encodeURIComponent(sid)).then(function (s) {
     _hitlSession = sid;
     _hitlTerms = s.terms || [];
+    _hitlRejected = s.rejected || [];
+    _hitlDiagnosis = s.diagnostics || {};
     _hitlTopN = (s.params && s.params.top_n) || 30;
     _verdicts = {}; _edits = {}; _merges = {}; _addedRows = [];
     var pre = 0;
@@ -3210,7 +3290,6 @@ async function doPipeline() {
   if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
   const name = document.getElementById('pipeline-name').value || 'MyProject';
   const top = parseInt(document.getElementById('pipeline-top').value) || 30;
-  const template = document.getElementById('pipeline-template').value;
   const spinner = document.getElementById('pipeline-spinner');
   const result = document.getElementById('pipeline-result');
   const progressWrap = document.getElementById('pipeline-progress');
@@ -3229,32 +3308,23 @@ async function doPipeline() {
   document.getElementById('pipeline-case').style.display = 'none';
   if (window.petSetThinking) window.petSetThinking(true);
 
-  // Dynamically build steps display based on template
-  const stepsByTemplate = {
-    'quick-analysis': ['\u5206\u6790\u6587\u672c', '\u63d0\u53d6\u672f\u8bed'],
-    'full-pipeline': ['\u5206\u6790\u6587\u672c', '\u63d0\u53d6\u672f\u8bed', '\u7ffb\u8bd1\u672f\u8bed', '\u5168\u6587\u7ffb\u8bd1', '\u96be\u5ea6\u5206\u6790', '\u751f\u6210\u62a5\u544a'],
-    'agent-pipeline': ['\u5206\u6790\u6587\u672c', 'AI \u63d0\u53d6\u672f\u8bed', 'AI \u7ffb\u8bd1\u672f\u8bed', 'AI \u5168\u6587\u7ffb\u8bd1', '\u96be\u5ea6\u5206\u6790', '\u751f\u6210\u62a5\u544a']
-  };
-  const steps = stepsByTemplate[template] || stepsByTemplate['full-pipeline'];
-
-  document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
-    `<div class="pstep pending"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
-  ).join('');
-
-  let currentStep = 0;
+  // 「流水线模板」下拉框已删除：它和顶部的模式切换重复（quick-analysis 等价于
+  // 检查点模式第①步、full-pipeline 等价于全自动模式本身、agent-pipeline 是没有
+  // 人工裁决的弱化版检查点）。这里改成中性的进度条 —— 真正的步骤状态由后端
+  // 返回的 step_status 渲染，不再用前端硬编码的假步骤名。
+  document.getElementById('pipeline-steps').innerHTML = '';
+  let pctTimer = 0;
   const stepInterval = setInterval(function(){
-    currentStep = Math.min(steps.length - 1, currentStep + 1);
-    const pct = Math.round((currentStep / steps.length) * 100);
-    progressFill.style.width = pct + '%';
-    progressStep.textContent = steps[currentStep];
-    progressPct.textContent = pct + '%';
+    pctTimer = Math.min(92, pctTimer + 7);   // 只涨到 92%，完成后才到 100%
+    progressFill.style.width = pctTimer + '%';
+    progressStep.textContent = '运行中…';
+    progressPct.textContent = pctTimer + '%';
   }, 1200);
 
   try {
     const useRag = document.getElementById('pipeline-rag').checked;
     const data = await apiWithAI('/api/pipeline/v2', {
       text, project_name: name, top_n: top,
-      template: template,
       use_ai: _aiConfig.enabled, ai_engine: _aiConfig.enabled ? 'ai' : null,
       use_rag: useRag,
       stream: true

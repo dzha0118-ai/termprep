@@ -180,6 +180,31 @@ const TEXT = '本研究以译后编辑工作量与多智能体编排为切入点
   chk(((sess.result || {}).report || '').length > 300, '刷新后仍可取回报告');
   chk(Object.keys((sess.result || {}).exports || {}).length > 0, '刷新后仍可取回导出清单');
 
+  console.log('\n=== 8) 提取诊断面板 + 「加回候选」 ===');
+  const dg = doc.getElementById('hitl-diagnosis');
+  chk(!!dg, '诊断面板容器存在');
+  window._hitlDiagnosis = {
+    code: 'short-text', chars: 8, cn_chars: 7, en_letters: 0,
+    extracted: 1, kept: 1, dropped_by_ai: 1,
+    hint: '文本较短（8 字）：统计类提取器需要一定篇幅才能产出更多术语，建议提供 ≥300 字。',
+  };
+  window._hitlRejected = [{ word: '混合', score: 0.31, pos: 'adj', type: 'generic', freq: 2 }];
+  window.renderHitlDiagnosis();
+  chk(dg.style.display === 'block', '诊断面板显示出来');
+  chk(dg.textContent.includes('较短'), '显示"为什么少"的原因');
+  chk(dg.textContent.includes('混合'), '列出被 AI 剔除的项');
+  chk(/addBackRejected/.test(dg.innerHTML), '有「全部加回候选」按钮');
+
+  const before = (window._hitlTerms || []).length;
+  window.addBackRejected();
+  chk((window._hitlTerms || []).length === before + 1, '加回候选生效（+1）');
+  chk((window._hitlTerms || []).some((t) => t.word === '混合'), '被剔除的「混合」回到候选里');
+  chk(dg.style.display === 'none', '加回后诊断面板收起');
+
+  console.log('\n=== 9) 重复的「流水线模板」下拉框已删除 ===');
+  chk(!doc.getElementById('pipeline-template'), '模板 select 不存在');
+  chk(!doc.getElementById('pipeline-template-wrap'), '模板容器不存在');
+
   console.log('\n' + (fail === 0
     ? `===== 端到端全部通过：${ok} 项 =====`
     : `===== ${fail} 项失败 / ${ok} 通过 =====`));

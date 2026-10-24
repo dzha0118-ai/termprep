@@ -133,6 +133,31 @@ def main() -> int:
           "阶段条有 failed 分支")
     check("'skipped'" in html, "阶段条有 skipped 分支")
 
+    # ── 9. 「提取不出来」必须可解释、可挽回 ──
+    print("\n9) 提取诊断与挽回入口")
+    for marker, label in [
+        ('id="hitl-diagnosis"', "诊断面板容器"),
+        ("function renderHitlDiagnosis", "诊断渲染函数"),
+        ("function addBackRejected", "「加回候选」函数"),
+        ("_hitlRejected", "保存 AI 剔除项的状态"),
+        ("_hitlDiagnosis", "保存诊断结果的状态"),
+        ("diagnostics", "使用后端 diagnostics 字段"),
+        ("全部加回候选", "加回按钮文案"),
+        ("没提取到术语", "零结果时给出原因而不是静默"),
+    ]:
+        check(marker in html, label, marker)
+    check(html.count("_hitlRejected = data.rejected") >= 2,
+          "两处入口（流水线页 / 提取页）都写入 rejected",
+          f"出现 {html.count('_hitlRejected = data.rejected')} 次")
+
+    # ── 10. 流水线模板下拉框应已移除（与顶部模式切换重复）──
+    print("\n10) 已删除重复的「流水线模板」下拉框")
+    check('id="pipeline-template"' not in html, "模板 select 已移除")
+    check("pipeline-template-wrap" not in html, "模板容器已移除")
+    check("stepsByTemplate" not in html, "前端硬编码的模板步骤表已移除")
+    check("template: template" not in html, "请求里不再传 template")
+    check("运行中…" in html, "全自动进度改为中性文案（不伪造步骤名）")
+
     print("\n" + "=" * 62)
     print(f"PASS: {_PASS}   FAIL: {_FAIL}")
     print("=" * 62)
