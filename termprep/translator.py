@@ -501,6 +501,25 @@ def _split_sentences(text: str) -> list[str]:
     return [p.strip() for p in re.split(r"(?<=[。！？.!?：:])\s*", text) if p.strip()]
 
 
+def _match_in_target(candidate: str, target: str) -> str | None:
+    """Locate ``candidate`` inside ``target`` and return it **verbatim**.
+
+    §5.6 — the returned value is always an exact (case-insensitive) slice of
+    ``target``, so every highlight built from it satisfies the invariant
+    ``highlight["target_span"] in translated``. Returns ``None`` when the
+    candidate cannot be located, and the caller then drops the highlight.
+    """
+    if not candidate or not target:
+        return None
+    cand = candidate.strip().strip(".,;:!?、。，；：！？\"'“”‘’()（）[]【】")
+    if not cand:
+        return None
+    idx = target.lower().find(cand.lower())
+    if idx < 0:
+        return None
+    return target[idx: idx + len(cand)]
+
+
 def _generate_highlights(src: str, tgt: str, domain: str) -> list[dict]:
     """Generate term highlights with translations for the source text.
 
@@ -574,16 +593,30 @@ def _generate_highlights(src: str, tgt: str, domain: str) -> list[dict]:
             if not trans:
                 continue
 
+            # §5.6 — a highlight may only point at wording the translation
+            # actually uses. Previously each candidate was translated in
+            # isolation, so the panel could claim 编排 → "Arrange" while the
+            # real output said "orchestration", actively misleading the
+            # translator. We now project the guess back onto the target text and
+            # drop anything that cannot be located verbatim: 宁可少标，不可错标.
+            target_span = _match_in_target(trans, tgt)
+            if not target_span:
+                continue
+
             reasons = {
-                "legal": f'"{word}" 在法律语境中译为 "{trans}"，符合法律文本的正式表达。',
-                "medical": f'"{word}" 在医学语境中译为 "{trans}"，使用标准医学术语。',
-                "finance": f'"{word}" 在金融语境中译为 "{trans}"，遵循财经术语标准。',
-                "it": f'"{word}" 在信息技术语境中译为 "{trans}"，保持技术术语一致性。',
-                "academic": f'"{word}" 在学术语境中译为 "{trans}"，符合论文表达习惯。',
+                "legal": f'"{word}" 在法律语境中译为 "{target_span}"，符合法律文本的正式表达。',
+                "medical": f'"{word}" 在医学语境中译为 "{target_span}"，使用标准医学术语。',
+                "finance": f'"{word}" 在金融语境中译为 "{target_span}"，遵循财经术语标准。',
+                "it": f'"{word}" 在信息技术语境中译为 "{target_span}"，保持技术术语一致性。',
+                "academic": f'"{word}" 在学术语境中译为 "{target_span}"，符合论文表达习惯。',
             }
             highlights.append({
                 "start": pos, "end": end, "term": word,
-                "translation": trans, "reasoning": reasons.get(domain, f'"{word}" → "{trans}"'),
+                # verified verbatim slice of the translation
+                "translation": target_span,
+                # §5.6 — explicit alignment field, always findable in `translated`
+                "target_span": target_span,
+                "reasoning": reasons.get(domain, f'"{word}" → "{target_span}"'),
             })
     except Exception as e:
         _log.debug(f"non-critical: {e}")

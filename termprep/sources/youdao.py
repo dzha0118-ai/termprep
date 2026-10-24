@@ -41,6 +41,22 @@ class YoudaoSource(DictSource):
 
         results: list[SearchResult] = []
 
+        # §5.5 — gather vocabulary-level signals BEFORE building the translation
+        # entries, so their ``definition`` carries a real gloss (phonetic + 释义).
+        # The old code used ``definition=data.get("query", term)``, i.e. it echoed
+        # the search term — which is exactly why the reported payload had
+        # ``definition`` identical to nothing useful and no 释义/例句 at all.
+        raw_basic = data.get("basic", {})
+        basic: dict[str, Any] = raw_basic if isinstance(raw_basic, dict) else {}
+        explains = [str(e) for e in (basic.get("explains") or [])]
+        us_phonetic = basic.get("us-phonetic", "") or ""
+        uk_phonetic = basic.get("uk-phonetic", "") or ""
+        phonetic = f"/{us_phonetic or uk_phonetic}/" if (us_phonetic or uk_phonetic) else ""
+        gloss = "; ".join(explains[:3])
+
+        def _translation_definition() -> str:
+            return " ".join(p for p in (phonetic, gloss) if p).strip()
+
         # Translation
         translation = data.get("translation", [])
         for t in translation[:limit]:
@@ -50,13 +66,11 @@ class YoudaoSource(DictSource):
                 word_type="translation",
                 source="youdao",
                 score=0.95,
-                definition=data.get("query", term),
+                definition=_translation_definition(),
             ))
 
-        # Basic dictionary entries (synonyms, explanations)
-        basic = data.get("basic", {})
+        # Basic dictionary entries (释义 / 音标)
         if basic:
-            explains = basic.get("explains", [])
             for exp in explains[:limit]:
                 results.append(SearchResult(
                     query=term,
@@ -64,10 +78,8 @@ class YoudaoSource(DictSource):
                     word_type="explanation",
                     source="youdao",
                     score=0.85,
+                    definition=phonetic,
                 ))
-            # US/UK phonetic
-            us_phonetic = basic.get("us-phonetic", "")
-            uk_phonetic = basic.get("uk-phonetic", "")
             if us_phonetic:
                 results.append(SearchResult(
                     query=term, word=us_phonetic, word_type="phonetic",

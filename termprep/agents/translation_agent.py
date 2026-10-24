@@ -158,7 +158,7 @@ class TranslationAgent:
         segments: list[TranslationSegment] = []
         for i, src in enumerate(source_sentences):
             tgt = target_sentences[i] if i < len(target_sentences) else ""
-            highlights = self._find_term_highlights(tgt, glossary)
+            highlights = self._find_term_highlights(src, tgt, glossary)
             segments.append(
                 TranslationSegment(
                     index=i,
@@ -172,24 +172,49 @@ class TranslationAgent:
 
     def _find_term_highlights(
         self,
-        text: str,
+        source_text: str,
+        target_text: str,
         glossary: list[dict[str, str]],
     ) -> list[dict[str, Any]]:
-        """Find glossary terms in translated text and record positions."""
-        highlights = []
+        """Align glossary entries across source and target (§5.6).
+
+        Two invariants hold for every returned highlight:
+
+        * ``start``/``end`` are offsets into the **source** sentence — that is
+          what the UI marks up. Previously they were offsets into the *target*
+          sentence, so the front-end underlined the wrong characters of the
+          source.
+        * ``translation`` / ``target_span`` are verified, verbatim slices of the
+          target sentence, so ``highlight["target_span"] in translated`` always
+          holds and a highlight can never advertise a wording the translation
+          did not actually use.
+        """
+        highlights: list[dict[str, Any]] = []
         for g in glossary:
-            term = g.get("translation", "")
-            if not term:
+            src_term = (g.get("term") or "").strip()
+            tgt_term = (g.get("translation") or "").strip()
+            if not src_term or not tgt_term:
                 continue
-            # Simple substring search (case-insensitive for English)
-            pos = text.lower().find(term.lower())
-            if pos >= 0:
-                highlights.append({
-                    "start": pos,
-                    "end": pos + len(term),
-                    "term": term,
-                    "source_term": g.get("term", ""),
-                })
+
+            # 1) locate the term in the SOURCE sentence (drives the markup)
+            pos = source_text.lower().find(src_term.lower())
+            if pos < 0:
+                continue
+
+            # 2) assert the claimed translation really occurs in the target
+            t_pos = target_text.lower().find(tgt_term.lower())
+            if t_pos < 0:
+                continue  # 宁可少标，不可错标
+
+            target_span = target_text[t_pos: t_pos + len(tgt_term)]
+            highlights.append({
+                "start": pos,
+                "end": pos + len(src_term),
+                "term": src_term,
+                "source_term": src_term,
+                "translation": target_span,
+                "target_span": target_span,
+            })
         return highlights
 
     def _compute_consistency(

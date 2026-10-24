@@ -59,4 +59,15 @@ frontend/.vite/
 
 # Docker
 postgres_data/
+
+# ── HF Space 拖拽上传用的打包目录（由源码派生，不入库）──
+hf_deploy/
+
+# ── 测试隔离目录与临时产物 ──
+_hitl_tmp/
+_hitl_storage_tmp/
+_casebundle_tmp/
+_multiproc_data/
+check_tmp.js
+_live_index.html
 termprep_dev.db

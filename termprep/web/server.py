@@ -1,17 +1,20 @@
 """TermPrep Web Server — FastAPI backend."""
 
 import asyncio
+import hashlib
 import json
 import os
 import queue
+import re
 import sys
 import time
 import uuid
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Request
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Request, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from typing import Any, Optional
 
@@ -20,9 +23,9 @@ _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from termprep.analyzer import analyze
-from termprep.extractor import extract
-from termprep.searcher import search_term
+from termprep.analyzer import analyze, get_summary
+from termprep.extractor import extract, explainable_score, guess_pos
+from termprep.searcher import search_term, search_multi
 from termprep.db import TermDB, list_termbases, init_termbase
 from termprep.sources import get_available_sources
 from termprep.pipeline import run_pipeline
@@ -30,16 +33,32 @@ from termprep.associator import find_related
 from termprep.translator import translate_text, parse_file
 from termprep.tm import store as tm_store, search as tm_search, stats as tm_stats
 from termprep.termbase import lookup_term, validate_terms
+from termprep import decision_log
 
 PROJ_ROOT = _root
 STATIC_DIR = os.path.join(PROJ_ROOT, "web", "static")
+
+# Single source of truth for the reported version (§5.4 / §5.10). Exposed by
+# ``/api/health`` so the paper's stated version can be verified against the
+# running deployment.
+APP_VERSION = "0.5"
+
+
+from termprep.web.security import (
+    ADMIN_TOKEN_ENV,
+    MAX_REQUEST_BYTES,
+    admin_token_configured,
+    precheck_content_length,
+    require_admin,
+    validate_upload,
+)
 
 
 # ── Agent imports (new architecture) ──
 from termprep.agents.orchestrator import AgentOrchestrator
 from termprep.agents.schemas import TranslationRequest as AgentTranslationRequest
 from termprep.services.translation_service import TranslationService
-from termprep.services.pipeline_service import PipelineService, list_templates
+from termprep.services.pipeline_service import PipelineService, list_templates, get_template
 from termprep.services.translation_analysis import analyze_translation_difficulty
 from termprep.config import settings as termprep_settings
 import termprep.engines  # trigger engine registration (ai, google, youdao)
@@ -65,6 +84,77 @@ def _clean_stale_event_queues() -> None:
              if hasattr(q, '_created_at') and now - getattr(q, '_created_at', 0) > _PIPELINE_EVENT_TTL]
     for pid in stale:
         _pipeline_events.pop(pid, None)
+
+
+# ── Human-in-the-loop pipeline sessions (in-memory, TTL 1h) ──
+# Same shape as the SSE event store: a plain module-level dict with a TTL sweep.
+# A HITL session holds the input text, the run parameters, the analysis and the
+# candidate terms produced by /api/pipeline/start, so that /resume can continue
+# from the translator's adjudication without re-extracting.
+_HITL_TTL = 3600  # 1 hour
+
+# 会话必须**跨 worker 共享**：部署命令是 `gunicorn -w 2`，`/start` 落在 worker A、
+# `/resume` 落在 worker B 就必然「session not found or expired」。
+# 因此落盘到 SQLite（termprep.hitl_store），多 worker 共享同一个文件。
+from termprep import hitl_store as _hitl_store  # noqa: E402
+
+# 进程内兜底缓存：即使 SQLite 读取瞬时失败（多进程锁竞争），同一个 worker 仍能
+# 从自己的缓存里拿到刚创建/刚读取过的会话，避免把可用的会话误判成 404。
+_HITL_LOCAL_CACHE: dict[str, dict[str, Any]] = {}
+_HITL_LOCAL_MAX = 64
+
+
+def _hitl_clean() -> None:
+    try:
+        _hitl_store.clean()
+    except Exception:
+        pass
+
+
+def _hitl_get(session_id: str) -> dict[str, Any] | None:
+    """Look up a checkpoint session (SQLite first, process cache as fallback).
+
+    A storage error must NEVER be reported as "session expired": we fall back to
+    the in-process cache, and if that misses too we re-raise so the endpoint can
+    return 503 with the real reason instead of a misleading 404.
+    """
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    try:
+        sess = _hitl_store.get(sid)
+    except Exception:
+        cached = _HITL_LOCAL_CACHE.get(sid)
+        if cached is not None:
+            return cached
+        raise
+    if sess is not None:
+        _HITL_LOCAL_CACHE[sid] = sess
+        if len(_HITL_LOCAL_CACHE) > _HITL_LOCAL_MAX:
+            for k in list(_HITL_LOCAL_CACHE)[: len(_HITL_LOCAL_CACHE) - _HITL_LOCAL_MAX]:
+                _HITL_LOCAL_CACHE.pop(k, None)
+        return sess
+    # DB says missing — but this worker may have created it moments ago
+    return _HITL_LOCAL_CACHE.get(sid)
+
+
+def _hitl_save(session_id: str, payload: dict[str, Any]) -> None:
+    _hitl_store.save(session_id, payload, ttl=_HITL_TTL)
+    _HITL_LOCAL_CACHE[session_id] = dict(payload, session_id=session_id)
+
+
+# ── Agent task store (module level, so submit/status/execute agree) ──
+# The orchestrator keeps its own _tasks dict per instance, but the API creates a
+# fresh orchestrator per request — which is exactly why submit returned a
+# task_id while status/execute were hard-coded 501 (a dead end).
+_AGENT_TASKS: dict[str, dict[str, Any]] = {}
+_AGENT_TASK_TTL = 3600
+
+
+def _agent_tasks_clean() -> None:
+    now = time.time()
+    for tid in [k for k, v in _AGENT_TASKS.items() if now - v.get("created_at", 0) > _AGENT_TASK_TTL]:
+        _AGENT_TASKS.pop(tid, None)
 
 
 # ── Client-supplied AI config helper ──
@@ -204,10 +294,312 @@ class AgentTaskStatusIn(BaseModel):
     task_id: str
 
 
+class DecisionItem(BaseModel):
+    """One 系统建议 / 译员裁决 record (§5.4.1 + §5.11)."""
+    term: str
+    system_suggestion: str = ""
+    translator_verdict: str = "pending"   # pending|accepted|rejected|added|merged|edited
+    score: float | None = None
+    score_breakdown: dict | None = None
+    note: str = ""
+    step: str = ""
+    input_digest: str = ""
+
+
+class PipelineStartIn(BaseModel):
+    """Human-in-the-loop 检查点：只跑 analyze + extract。"""
+    text: str
+    project_name: str = "Untitled"
+    top_n: int = 30
+    source_file: str = ""
+    domain_hint: str = ""
+
+
+class DecisionRecordIn(BaseModel):
+    session_id: str = ""
+    step: str = ""
+    input_digest: str = ""
+    items: list[DecisionItem] = []
+    # §5.4.1 — 让个案「可复现」：把完整原文与运行参数一并记住，
+    # 只存 80 字摘要的话导出包无法被复跑（见 export_bundle 的说明）。
+    input_text: str = ""
+    parameters: dict | None = None
+
+
+class AdjudicationItem(BaseModel):
+    """译员对单个候选术语的裁决。"""
+    word: str
+    verdict: str = "accepted"          # accepted | rejected | edited | added
+    edited_word: str = ""              # verdict=edited 时的修正后术语
+    edited_translation: str = ""       # verdict=edited/added 时的译文
+    merge_into: str = ""               # 合并目标（另一条候选的 word）
+    type: str = ""
+    freq: int | None = None
+    score: float | None = None
+    score_breakdown: dict | None = None
+    note: str = ""
+
+
+class PipelineResumeIn(BaseModel):
+    """裁决后继续：glossary → full_translate → termbase → report → export。"""
+    terms: list[AdjudicationItem] = []
+    project_name: str = "Untitled"
+    top_n: int = 30
+    translate_mode: str = "auto"
+    use_rag: bool = False
+    engine: str | None = None
+    use_ai: bool = False
+    # 词典检索「采用」的译文（前端可直接带上；服务端还会回查裁决日志）
+    adopted_translations: dict[str, str] | None = None
+    export_formats: list[str] | None = None
+
+
+# ── Template step names → run_pipeline() internal step keys ──
+# The chosen template previously did nothing at all: /api/pipeline/v2 echoed the
+# name back but always executed the same fixed workflow, so 「快速分析」和
+# 「完整流水线」ran byte-identical work and no step could ever be reported missing.
+_TEMPLATE_STEP_TO_KEY: dict[str, str] = {
+    "analyze": "analyze",
+    "extract": "extract",
+    "ai_extract": "extract",
+    "glossary": "glossary",
+    "ai_term_translate": "glossary",
+    "ai_glossary": "glossary",
+    "full_translate": "full_translate",
+    "ai_full_translate": "full_translate",
+    "ai_translate": "full_translate",
+    "translate_analysis": "translate_analysis",
+    "termbase": "termbase",
+    "report": "report",
+    "export": "export",
+}
+
+
+def _template_step_keys(names: list[str]) -> list[str] | None:
+    """Translate template step names into run_pipeline step keys (None = all)."""
+    keys = [_TEMPLATE_STEP_TO_KEY[n] for n in names if n in _TEMPLATE_STEP_TO_KEY]
+    return keys or None
+
+
+def _adopted_translations_from_log(session_id: str = "") -> dict[str, str]:
+    """词典检索中被译员「采用」的译文（step=search, verdict=accepted）。
+
+    Human-in-the-loop：译员在搜索页点「采用」后，resume 时该译文优先入库，
+    避免又被 AI 翻译覆盖掉。
+    """
+    out: dict[str, str] = {}
+    try:
+        for r in decision_log.list_decisions(session_id or None, limit=5000):
+            if (r.get("step") or "") != "search":
+                continue
+            if (r.get("translator_verdict") or "") != decision_log.VERDICT_ACCEPTED:
+                continue
+            term = (r.get("term") or "").strip()
+            trans = (r.get("system_suggestion") or "").strip()
+            if term and trans:
+                out[term] = trans
+    except Exception:
+        pass
+    return out
+
+
+def _apply_adjudication(
+    items: list[dict],
+    session_terms: list[dict],
+    adopted_from_log: dict[str, str],
+    explicit_adopted: dict[str, str] | None,
+    client_settings: dict,
+) -> tuple[list, list[dict], dict]:
+    """把译员裁决转换为 (术语列表, 术语→译文, 统计)。
+
+    规则：
+      * rejected  → 丢弃，绝不入库
+      * edited    → 用 ``edited_word`` / ``edited_translation`` 作为最终值
+      * added     → 追加（不要求 admin token，走裁决日志而非 /api/term/add）
+      * merge_into→ 源条目并入目标条目（只保留一条，频次相加）
+
+    译文优先级：edited_translation → 前端显式采用 → 裁决日志里「采用」的检索结果
+    → 会话原始候选译文 → 引擎补齐。
+    """
+    from termprep.extractor import TermEntry
+
+    by_word = {t.get("word", ""): t for t in (session_terms or [])}
+    explicit_adopted = explicit_adopted or {}
+
+    rejected: list[str] = []
+    merge_map: dict[str, str] = {}
+    rows: dict[str, dict] = {}
+    order: list[str] = []
+
+    for it in items or []:
+        word = (it.get("word") or "").strip()
+        if not word:
+            continue
+        verdict = (it.get("verdict") or "accepted").lower()
+        merge_into = (it.get("merge_into") or "").strip()
+
+        # 合并优先于其它裁决：只要指向了别的条目就并过去
+        if merge_into and merge_into != word:
+            merge_map[word] = merge_into
+            continue
+        if verdict == "rejected":
+            rejected.append(word)
+            continue
+        if verdict not in ("accepted", "edited", "added"):
+            verdict = "accepted"
+
+        base = by_word.get(word, {})
+        new_word = (it.get("edited_word") or "").strip() if verdict == "edited" else word
+        new_word = new_word or word
+
+        trans = (it.get("edited_translation") or "").strip()
+        if not trans:
+            trans = (explicit_adopted.get(word) or "").strip()
+        if not trans:
+            trans = (adopted_from_log.get(word) or "").strip()
+        if not trans:
+            trans = (base.get("translation") or "").strip()
+
+        rows[new_word] = {
+            "term": new_word,
+            "source_word": word,
+            "translation": trans,
+            "freq": it.get("freq") if it.get("freq") is not None else base.get("freq", 1),
+            "type": (it.get("type") or base.get("type")
+                     or ("added" if verdict == "added" else "")),
+            "score": it.get("score") if it.get("score") is not None else base.get("score"),
+            "verdict": verdict,
+            "note": it.get("note") or "",
+        }
+        if new_word not in order:
+            order.append(new_word)
+
+    # ── 合并 ──
+    for source, target in merge_map.items():
+        src_row = rows.pop(source, None)
+        tgt = rows.get(target)
+        if tgt is None:
+            # 目标被剔除或不存在 → 保留源条目，避免静默丢术语
+            base = by_word.get(source, {})
+            rows[source] = {
+                "term": source,
+                "source_word": source,
+                "translation": (src_row or {}).get("translation") or (base.get("translation") or ""),
+                "freq": base.get("freq", 1),
+                "type": base.get("type", ""),
+                "score": base.get("score"),
+                "verdict": "accepted",
+                "note": f"合并目标 {target} 不可用，保留本条",
+            }
+            if source not in order:
+                order.append(source)
+            continue
+        tgt["freq"] = int(tgt.get("freq") or 1) + int(
+            (src_row or {}).get("freq") or by_word.get(source, {}).get("freq") or 1
+        )
+        tgt["merged_from"] = list(tgt.get("merged_from") or []) + [source]
+
+    # ── 缺译文的用引擎补齐（4 通道补齐已实现于 translate_terms）──
+    missing = [w for w in order if w in rows and not rows[w]["translation"]]
+    if missing:
+        try:
+            from termprep.services.translation_service import TranslationService
+
+            svc = TranslationService(client_settings)
+            svc.load_engines()
+            joined = " ".join(rows[w]["term"] for w in missing)
+            src_lang = "zh" if re.search(r"[\u4e00-\u9fff]", joined) else "en"
+            tgt_lang = "en" if src_lang == "zh" else "zh"
+            for r in svc.translate_terms(missing, source_lang=src_lang, target_lang=tgt_lang):
+                w = r.get("term")
+                if w in rows and r.get("translation"):
+                    rows[w]["translation"] = r["translation"]
+                    rows[w]["translation_engine"] = r.get("engine", "")
+        except Exception:
+            pass
+
+    terms: list = []
+    glossary: list[dict] = []
+    for w in order:
+        row = rows.get(w)
+        if row is None:
+            continue
+        terms.append(TermEntry(
+            term=row["term"],
+            frequency=int(row.get("freq") or 1),
+            score=float(row.get("score") or 0.0),
+            word_type=row.get("type") or "verdict",
+        ))
+        glossary.append({
+            "term": row["term"],
+            "translation": row["translation"] or "[未找到翻译]",
+            "freq": int(row.get("freq") or 1),
+            "type": row.get("type") or "",
+            "verdict": row["verdict"],
+            "merged_from": row.get("merged_from") or [],
+        })
+
+    stats = {
+        "input_items": len(items or []),
+        "rejected": rejected,
+        "merged": [{"from": s, "into": t} for s, t in merge_map.items()],
+        "kept": len(terms),
+        "untranslated": sum(1 for g in glossary if g["translation"] == "[未找到翻译]"),
+    }
+    return terms, glossary, stats
+
+
+def _hitl_status() -> dict:
+    """Where checkpoint sessions are kept + a live write→read self-test.
+
+    The self-test is deliberate: on a live Space we cannot read the server logs,
+    so a failing session store must be visible through the API rather than
+    surfacing as a mysterious "session not found" on resume.
+    """
+    try:
+        return {
+            "backend": f"sqlite:{_hitl_store.backend()}",
+            "sessions": _hitl_store.count(),
+            "ttl_seconds": _HITL_TTL,
+            "shared_across_workers": True,
+            "local_cache_entries": len(_HITL_LOCAL_CACHE),
+            "self_test": _hitl_store.self_test(),
+            "last_error": _hitl_store.last_error(),
+        }
+    except Exception as e:
+        return {"backend": "unavailable", "error": f"{type(e).__name__}: {e}",
+                "shared_across_workers": False,
+                "last_error": _hitl_store.last_error() if hasattr(_hitl_store, "last_error") else ""}
+
+
+def _storage_status() -> dict:
+    """Report whether runtime data will survive a container rebuild (§5.4.1).
+    Container-local SQLite is wiped on every rebuild, so an operator who *thinks*
+    they configured persistence (but whose path is not writable) would silently
+    lose the case data. Surfacing this in /api/health makes that visible.
+    """
+    try:
+        from termprep import storage as _storage
+
+        return {
+            "data_dir": _storage.data_dir(),
+            "persistent": _storage.is_persistent(),
+            "note": _storage.resolution_note(),
+            "warning": (
+                ""
+                if _storage.is_persistent()
+                else "数据存在容器内，重建后会丢失；请设置 TERMPREP_DATA_DIR 指向持久目录，"
+                     "并定期用 /api/cases/bundle 导出个案数据包"
+            ),
+        }
+    except Exception as e:
+        return {"persistent": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ── App factory ──────────────────────────────────────────────────
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="TermPrep", version="0.5")
+    app = FastAPI(title="TermPrep", version=APP_VERSION)
 
     # RAG seed data initialization (lazy, no-op if ChromaDB unavailable)
     @app.on_event("startup")
@@ -241,6 +633,26 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # GZip — compress HTML/JSON responses (big win for the ~120KB single-file frontend)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
+
+    # §5.2 — hard request-body cap: refuse oversized uploads before buffering them
+    @app.middleware("http")
+    async def _limit_request_body(request: Request, call_next):
+        declared = request.headers.get("content-length")
+        if declared:
+            try:
+                too_big = int(declared) > MAX_REQUEST_BYTES
+            except ValueError:
+                too_big = False
+            if too_big:
+                limit_mb = MAX_REQUEST_BYTES // (1024 * 1024)
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"请求体过大，上限 {limit_mb} MB"},
+                )
+        return await call_next(request)
+
     # ── API Routes ──
 
     @app.get("/api/sources")
@@ -251,69 +663,404 @@ def create_app() -> FastAPI:
             for s in srcs
         ]}
 
+    @app.get("/api/health")
+    def api_health():
+        """§5.10 — service self-check.
+
+        Lets readers / reviewers confirm the deployment is alive, and gives the
+        demo a pre-flight check. Reports the version, engine health and term-base
+        size. Read-only and safe to call anonymously.
+        """
+        engines: list[dict] = []
+        try:
+            svc = TranslationService(termprep_settings.to_dict())
+            svc.load_engines()
+            engines = [
+                {"name": e["name"], "available": e["available"], "health": e["health"]}
+                for e in svc.list_available_engines()
+            ]
+        except Exception:
+            engines = []
+
+        db_info: dict = {"name": "terms", "total_terms": 0}
+        try:
+            stats = TermDB().get_stats()
+            db_info = {
+                "name": stats.get("name", "terms"),
+                "total_terms": stats.get("total_terms", 0),
+            }
+        except Exception:
+            pass
+
+        return {
+            "ok": True,
+            "version": APP_VERSION,
+            "engines": engines,
+            "db": db_info,
+            # Boolean only — never the token itself (§1.2).
+            "admin_token_configured": admin_token_configured(),
+            # §5.4.1 — 数据留存是否真的配置生效（容器重建会不会丢数据）
+            "storage": _storage_status(),
+            # 检查点会话的存储后端（多 worker 共享；排查 resume 失败时看这里）
+            "hitl": _hitl_status(),
+        }
+
+    # ════════════════════════════════════════════════════════════════
+    #  Decision log (§5.4.1 data persistence + §5.11 intervention export)
+    # ════════════════════════════════════════════════════════════════
+    # These routes are intentionally NOT behind require_admin: the whole point
+    # of §5.11 is that a reviewer can mark 「系统建议 / 译员裁决」intervention
+    # points during a demo. The log is append-only, session-scoped and bounded
+    # (decision_log.MAX_ROWS), so it cannot be used to destroy anything.
+
+    @app.post("/api/decisions/record")
+    def api_decisions_record(data: DecisionRecordIn):
+        """Persist 系统建议 / 译员裁决 pairs for the current session.
+
+        Turns the paper's hand-counted chain (30 suggested → 9 deleted → 10 added
+        → 3 merged → 28 kept) into a recorded, reproducible artefact.
+        """
+        items = [it.model_dump() for it in data.items]
+        if not items:
+            raise HTTPException(400, "no decision items")
+        recorded = decision_log.record_many(
+            session_id=data.session_id,
+            step=data.step,
+            input_digest=data.input_digest,
+            items=items,
+            input_text=data.input_text,
+            meta=data.parameters,
+        )
+        return {
+            "recorded": recorded,
+            "session_id": data.session_id,
+            "summary": decision_log.summary(data.session_id or None),
+        }
+
+    @app.get("/api/decisions/list")
+    def api_decisions_list(session_id: str = Query(""), limit: int = Query(500)):
+        return {"decisions": decision_log.list_decisions(session_id or None, limit)}
+
+    @app.get("/api/decisions/summary")
+    def api_decisions_summary(session_id: str = Query("")):
+        """Aggregate counts the methodology section can cite directly."""
+        return decision_log.summary(session_id or None)
+
+    @app.get("/api/decisions/export")
+    def api_decisions_export(session_id: str = Query(""), format: str = Query("csv")):
+        """Download the decision log — ready to become a paper appendix.
+
+        CSV columns: 时间戳 / 会话 / 步骤 / 输入文本摘要 / 术语 / 系统建议 /
+        译员裁决 / 系统评分 / 备注 (§5.4.1 + §5.11 item 3).
+        """
+        session = session_id or None
+        if (format or "csv").lower() == "json":
+            return JSONResponse(
+                content=decision_log.export_json(session),
+                headers={
+                    "Content-Disposition": 'attachment; filename="termprep-decisions.json"'
+                },
+            )
+        # Leading BOM so Excel opens the UTF-8 Chinese headers correctly
+        return Response(
+            content="\ufeff" + decision_log.export_csv(session),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="termprep-decisions.csv"'
+            },
+        )
+
+    # ════════════════════════════════════════════════════════════════
+    #  Case bundle (§5.4.1 — 可复现的个案数据包)
+    # ════════════════════════════════════════════════════════════════
+    # 容器本地 SQLite 在重建时会清空，所以「可复现」不能依赖容器留存，
+    # 必须产出**作者自己保存的**自描述数据包。这些端点只读 + 落盘导出文件，
+    # 不修改术语库/裁决数据。
+
+    @app.get("/api/cases/sessions")
+    def api_cases_sessions(limit: int = Query(100)):
+        """已记录输入文本（可导出数据包）的会话列表。"""
+        return {"sessions": decision_log.list_sessions(limit)}
+
+    @app.get("/api/cases/bundle")
+    def api_cases_bundle(
+        session_id: str = Query(""),
+        format: str = Query("json"),
+        include_text: bool = Query(True),
+        db_name: str = Query(""),
+        recompute: bool = Query(True),
+    ):
+        """下载完整个案数据包（含输入原文、参数、重算术语、裁决、术语库、TM）。
+
+        ``terms_recomputed`` 是用**存储的输入+参数重新跑**规则层得到的，
+        用来让审稿人验证确定性复现；AI 阶段在 manifest 中明确标注为不确定。
+        """
+        from termprep import export_bundle
+
+        bundle = export_bundle.build_case_bundle(
+            session_id=session_id or None,
+            db_name=db_name or None,
+            include_text=include_text,
+            app_version=APP_VERSION,
+            recompute=recompute,
+        )
+        safe = export_bundle._safe_name(session_id or "all")
+        if (format or "json").lower() == "zip":
+            return Response(
+                content=export_bundle.to_zip_bytes(bundle),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="termprep-case-{safe}.zip"'
+                },
+            )
+        return Response(
+            content=export_bundle.to_json_bytes(bundle),
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="termprep-case-{safe}.json"'
+            },
+        )
+
+    @app.post("/api/cases/snapshot")
+    def api_cases_snapshot(session_id: str = Query(""), label: str = Query("")):
+        """把当前会话落成一个快照文件（仍会随容器重建消失——请及时下载）。"""
+        from termprep import export_bundle
+
+        bundle = export_bundle.build_case_bundle(
+            session_id=session_id or None, app_version=APP_VERSION
+        )
+        snap = export_bundle.save_snapshot(bundle, label=label)
+        return {
+            "snapshot": snap["name"],
+            "bytes": snap["bytes"],
+            "warning": "容器重建后快照会丢失，请立即通过 /api/cases/snapshots/{name} 下载",
+        }
+
+    @app.get("/api/cases/snapshots")
+    def api_cases_snapshots(limit: int = Query(50)):
+        from termprep import export_bundle
+
+        return {"snapshots": export_bundle.list_snapshots(limit), "dir": export_bundle.snapshot_dir()}
+
+    @app.get("/api/cases/snapshots/{name}")
+    def api_cases_snapshot_download(name: str):
+        from termprep import export_bundle
+
+        data = export_bundle.read_snapshot(name)
+        if data is None:
+            raise HTTPException(404, "snapshot not found")
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{os.path.basename(name)}"'},
+        )
+
     @app.post("/api/analyze")
     def api_analyze(data: AnalyzeIn):
         if not data.text.strip():
             raise HTTPException(400, "No input text")
         result = analyze(data.text)
         return {
+            # ── existing fields: semantics unchanged ──
             "lang": result.lang,
             "char_count": result.chars_total,
             "word_count": result.words_en + result.words_cn,
             "domain": result.domain,
             "difficulty": result.difficulty,
-            "summary": str(result),
+            # §5.9d — natural-language summary. Previously this was
+            # `str(AnalysisResult(...))`, i.e. a Python dataclass repr that the
+            # front-end had to parse by hand.
+            "summary": get_summary(result),
+            # §5.9d — struct fields flattened onto the top level (additive).
+            "words_cn": result.words_cn,
+            "words_en": result.words_en,
+            "chars_no_space": result.chars_no_space,
+            "paragraphs": result.paragraphs,
+            "sentences": result.sentences,
+            # §5.8 — per-domain score breakdown so classification is auditable.
+            "domain_scores": {k: round(v, 4) for k, v in result.domain_scores.items()},
         }
 
     @app.post("/api/extract")
     def api_extract(data: ExtractIn, request: Request):
         if not data.text.strip():
             raise HTTPException(400, "No input text")
+
+        def _term_payload(word: str, freq, type_: str, translation: str | None = None) -> dict:
+            """§5.7 / §5.9a — every term now carries a real score + a POS tag."""
+            score, breakdown = explainable_score(
+                word, data.text, frequency=freq or 0, word_type=type_ or ""
+            )
+            item = {
+                "word": word,
+                "freq": freq,
+                "type": type_,
+                # §5.7 — multi-factor score (used to be a constant 0.9 on the AI path)
+                "score": score,
+                # §5.9a — used to be hard-coded ""
+                "pos": guess_pos(word),
+                # §5.7 — auditable decomposition: which factor drove the decision
+                "score_breakdown": breakdown,
+            }
+            if translation is not None:
+                item["translation"] = translation
+            return item
+
         # Try AI-enhanced extraction if client provided AI config
         client_settings = _ai_settings_from_request(request)
         if client_settings.get("ai_api_key"):
             try:
                 orch = _get_orchestrator(request)
                 glossary = orch.run_term_agent(text=data.text, project_name="browser", top_n=data.top_n)
-                return {"terms": [
-                    {"word": t.source_term, "freq": t.frequency, "type": t.term_type or "ai",
-                     "score": round(t.score, 3), "pos": "", "translation": t.target_translation or ""}
-                    for t in glossary.terms
-                ], "ai_used": True}
+                return {
+                    "terms": [
+                        _term_payload(
+                            t.source_term,
+                            t.frequency,
+                            t.term_type or "ai",
+                            t.target_translation or "",
+                        )
+                        for t in glossary.terms
+                    ],
+                    "ai_used": True,
+                    # keep the response shape identical to the rule-based path
+                    "rejected": [],
+                    "verification": {
+                        "used": False,
+                        "reason": "AI extraction path (candidates are already AI-produced)",
+                        "checked": 0,
+                        "dropped": 0,
+                    },
+                }
             except Exception:
                 pass
         terms = extract(data.text, top_n=data.top_n)
-        return {"terms": [
-            {"word": t.term, "freq": t.frequency, "type": t.word_type or "word",
-             "score": round(t.score, 3), "pos": ""}
-            for t in terms
-        ]}
+        # ── P4 — AI 复核：一次批量调用，剔掉"形态合法但非术语"的描述性短语 ──
+        # 规则层抓不住「高校翻译硕士课程」这类短语，也分辨不出「术语管理过程」
+        # 只是「术语管理」的冗长形式；这一步靠语义判断。
+        rejected: list[dict] = []
+        verification: dict = {"used": False, "reason": "AI not configured"}
+        if client_settings.get("ai_api_key"):
+            try:
+                from termprep.services.term_verifier import verify_terms, normalise_term
+
+                decisions, verification = verify_terms(
+                    [t.term for t in terms],
+                    context=data.text,
+                    settings=client_settings,
+                )
+                if decisions:
+                    kept: list = []
+                    for t in terms:
+                        d = decisions.get(normalise_term(t.term))
+                        # 仅在"明确判为非术语 + 原样匹配"时丢弃（宁可漏删，不可错删）
+                        if d is not None and d.get("is_term") is False:
+                            rejected.append({
+                                "word": t.term,
+                                "type": d.get("type", ""),
+                                "reason": d.get("reason", ""),
+                            })
+                        else:
+                            kept.append(t)
+                    terms = kept
+            except Exception as e:  # 复核绝不影响主流程
+                verification = {"used": False, "reason": f"verifier error: {type(e).__name__}"}
+
+        return {
+            "terms": [
+                _term_payload(t.term, t.frequency, t.word_type or "word")
+                for t in terms
+            ],
+            # P5 — 可观测性：让译员看得见系统丢弃了什么、为什么
+            "rejected": rejected,
+            "verification": verification,
+        }
 
     @app.post("/api/search")
     def api_search(data: SearchIn, request: Request):
         if not data.term.strip():
             raise HTTPException(400, "No search term")
-        # Try AI term lookup first if client config provided
+
         client_settings = _ai_settings_from_request(request)
-        if client_settings.get("ai_api_key"):
+        ai_available = bool(client_settings.get("ai_api_key"))
+
+        def _ai_lookup() -> list[dict]:
+            """§5.5 — the AI engine is one source among several, never a shortcut.
+
+            Asks for a dictionary-style entry (translation + POS + gloss) so the
+            result carries real 词汇级信息 instead of echoing the headword the way
+            the previous implementation did (``definition = word``).
+            """
+            from termprep.engines.ai_translator import AITranslator
+
+            engine = AITranslator(client_settings)
+            prompt = (
+                f"Look up the term: {data.term}\n"
+                "Return JSON only:\n"
+                '{"translation": "...", "pos": "...", "definition": "...", "example": "..."}\n'
+                "`definition` must be a short explanatory gloss, never a copy of the term."
+            )
+            raw = engine._chat(
+                prompt,
+                system_prompt="You are a bilingual terminology dictionary. Return valid JSON only.",
+            )
+            if not raw:
+                return []
+
+            import json as _json
+
+            text = raw.strip()
+            for fence in ("```json", "```"):
+                if text.startswith(fence):
+                    text = text[len(fence):]
+            text = text.strip().strip("`").strip()
             try:
-                from termprep.services.translation_service import TranslationService
-                svc = TranslationService(client_settings)
-                svc.load_engines()
-                ai_result = svc.translate(data.term, source_lang="auto", target_lang="auto", engine="ai")
-                if ai_result.text and not ai_result.text.startswith("["):
-                    return {"results": [{
-                        "query": data.term,
-                        "word": ai_result.text,
-                        "type": "translation",
-                        "source": f"ai-{client_settings.get('ai_provider','deepseek')}",
-                        "score": 0.95,
-                        "definition": ai_result.text,
-                    }], "term": data.term, "ai_used": True}
+                obj = _json.loads(text)
             except Exception:
-                pass
-        results = search_term(data.term, source="web", limit=data.limit)
-        return {"results": results, "term": data.term}
+                return []
+            if not isinstance(obj, dict):
+                return []
+
+            word = str(obj.get("translation") or "").strip()
+            if not word:
+                return []
+
+            parts: list[str] = []
+            if obj.get("pos"):
+                parts.append(f"[{str(obj['pos']).strip()}]")
+            if obj.get("definition"):
+                parts.append(str(obj["definition"]).strip())
+            if obj.get("example"):
+                parts.append(f"例：{str(obj['example']).strip()}")
+            definition = " ".join(parts).strip()
+            # never echo the headword back as its own definition
+            if definition.lower() == word.lower():
+                definition = ""
+
+            return [{
+                "query": data.term,
+                "word": word,
+                "type": "translation",
+                "score": 0.90,
+                "definition": definition,
+            }]
+
+        # §5.5 — concurrent multi-source aggregation (dictionary + Wikipedia + AI)
+        payload = search_multi(
+            data.term,
+            limit=data.limit,
+            ai_callable=_ai_lookup if ai_available else None,
+        )
+        contributed = payload.get("sources_with_results", [])
+        return {
+            "results": payload["results"],
+            "term": data.term,
+            # existing field, now truthful: AI ran as one of several sources
+            "ai_used": "ai" in contributed,
+            # new, additive: which sources actually contributed
+            "sources_used": payload["sources_used"],
+            "sources_failed": payload["sources_failed"],
+        }
 
     @app.post("/api/associate")
     def api_associate(data: AssociateIn, request: Request):
@@ -356,6 +1103,9 @@ def create_app() -> FastAPI:
     def api_translate(data: TranslateIn, request: Request):
         if not data.text.strip():
             raise HTTPException(400, "No input text")
+        # §5.9c — cut-off for TM lookups: entries written during this request
+        # (including the auto-store below) must never be reported as matches.
+        _tm_cutoff = time.time()
         try:
             client_settings = _ai_settings_from_request(request)
             if client_settings.get("ai_api_key"):
@@ -404,7 +1154,7 @@ def create_app() -> FastAPI:
                 "target_lang": result.target_lang,
                 "domain": result.domain,
                 "style_used": result.style_used,
-                "tm_matches": tm_search(data.text, result.source_lang, result.target_lang, result.domain, limit=3),
+                "tm_matches": tm_search(data.text, result.source_lang, result.target_lang, result.domain, limit=3, exclude_after=_tm_cutoff),
                 "segments": [
                     {
                         "index": s.index,
@@ -419,7 +1169,7 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(500, str(e))
 
-    @app.post("/api/translate/upload-test")
+    @app.post("/api/translate/upload-test", dependencies=[Depends(require_admin)])
     async def api_translate_upload_test(request: Request):
         """Minimal test endpoint for multipart upload diagnosis."""
         try:
@@ -438,7 +1188,7 @@ def create_app() -> FastAPI:
             import traceback
             return {"error": str(e), "traceback": traceback.format_exc()}
 
-    @app.post("/api/translate/upload")
+    @app.post("/api/translate/upload", dependencies=[Depends(require_admin)])
     async def api_translate_upload(request: Request):
         import sys, traceback as _tb, tempfile
         _step = "start"
@@ -456,10 +1206,16 @@ def create_app() -> FastAPI:
             use_rag_str = str(form.get("use_rag", "false")).lower()
             use_rag = use_rag_str in ("true", "1", "yes", "on")
 
+            _step = "validating_upload"
+            # §5.2 — reject oversized bodies before buffering, then whitelist +
+            # size-check the file and sanitise its name (path-traversal safe).
+            precheck_content_length(request.headers.get("content-length"))
+            content = await file.read()
+            safe_name = validate_upload(getattr(file, 'filename', ''), len(content))
+
             _step = "reading_file"
-            suffix = os.path.splitext(getattr(file, 'filename', 'file.txt') or ".txt")[1]
+            suffix = os.path.splitext(safe_name)[1].lower()
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                content = await file.read()
                 tmp.write(content)
                 tmp_path = tmp.name
 
@@ -498,7 +1254,7 @@ def create_app() -> FastAPI:
                         use_rag=use_rag,
                     )
                     return {
-                        "filename": getattr(file, 'filename', 'unknown'),
+                        "filename": safe_name,
                         "translated": trans.translated_text,
                         "source_lang": trans.source_lang,
                         "target_lang": trans.target_lang,
@@ -515,7 +1271,7 @@ def create_app() -> FastAPI:
                     error_detail = f"AI 翻译失败: {type(ai_err).__name__}: {ai_err}"
                     result = translate_text(text=text, domain=domain, target_lang=target_lang)
                     return {
-                        "filename": getattr(file, 'filename', 'unknown'),
+                        "filename": safe_name,
                         "translated": result.translated_text,
                         "source_lang": result.source_lang,
                         "target_lang": result.target_lang,
@@ -531,7 +1287,7 @@ def create_app() -> FastAPI:
             _step = "free_path"
             result = translate_text(text=text, domain=domain, target_lang=target_lang)
             return {
-                "filename": getattr(file, 'filename', 'unknown'),
+                "filename": safe_name,
                 "translated": result.translated_text,
                 "source_lang": result.source_lang,
                 "target_lang": result.target_lang,
@@ -543,6 +1299,10 @@ def create_app() -> FastAPI:
                 ],
                 "errors": result.errors,
             }
+        except HTTPException:
+            # §5.2 — let validation failures keep their real 4xx status code
+            # instead of being flattened into the 200-with-error envelope.
+            raise
         except Exception as e:
             tb_str = _tb.format_exc()
             return {
@@ -575,7 +1335,7 @@ def create_app() -> FastAPI:
         results = tm_search(data.term, limit=data.limit)
         return {"matches": results}
 
-    @app.post("/api/term/add")
+    @app.post("/api/term/add", dependencies=[Depends(require_admin)])
     def api_term_add(data: TermAddIn):
         tdb = TermDB(db_name=data.db_name) if data.db_name else TermDB()
         tid = tdb.add_term(
@@ -605,7 +1365,7 @@ def create_app() -> FastAPI:
         stats = tdb.get_stats()
         return stats
 
-    @app.post("/api/db/init")
+    @app.post("/api/db/init", dependencies=[Depends(require_admin)])
     def api_db_init(name: str = Query(...), domain: str = Query("")):
         try:
             tdb = init_termbase(name, domain=domain)
@@ -688,6 +1448,25 @@ def create_app() -> FastAPI:
                 domain=analysis_result.domain,
             )
 
+            # Make the selected template drive execution (it used to be cosmetic).
+            template = get_template(data.template) or get_template("full-pipeline") or {}
+            selected = [s.get("name", "") for s in (template.get("steps") or [])]
+            if data.steps:
+                selected = [
+                    (s.name if hasattr(s, "name") else str(s)) for s in data.steps
+                ]
+            step_keys = _template_step_keys(selected)
+            # The full template declares an export step — actually produce files
+            # for it instead of silently skipping it.
+            export_formats = ["csv", "json"] if "export" in selected else None
+
+            # 真正驱动 SSE：此前一步都没推事件，/api/pipeline/events 只会发 keepalive
+            # （这就是它作为「死功能」的根因）。
+            def _emit(name: str, status: str, detail: str) -> None:
+                _push_pipeline_event(pipeline_id, "step", {
+                    "name": name, "status": status, "detail": detail,
+                })
+
             # Build result
             result = run_pipeline(
                 text=data.text,
@@ -698,7 +1477,12 @@ def create_app() -> FastAPI:
                 translate_mode=data.translate_mode,
                 use_rag=data.use_rag,
                 settings=client_settings,
+                steps=step_keys,
+                export_formats=export_formats,
+                pipeline_id=pipeline_id,
+                on_event=_emit,
             )
+            _push_pipeline_event(pipeline_id, "pipeline_done", {"pipeline_id": pipeline_id})
 
             # Read report
             report_text = ""
@@ -709,27 +1493,383 @@ def create_app() -> FastAPI:
                 except Exception:
                     pass
 
+            # ══════════════════════════════════════════════════════════
+            # §5.4.1 — 把本次运行落成「可复现的个案数据包」
+            # ══════════════════════════════════════════════════════════
+            # 容器本地库会随重建清空，所以这里主动把（输入原文 + 参数 + 结果）
+            # 记进 session 并保存一份快照；同时返回一个可直接下载的 URL。
+            # 注意：只记录 provider/model 名称，绝不记录任何 key。
+            case_bundle_info: dict = {
+                "session_id": pipeline_id,
+                "download_url": "",
+                "snapshot": "",
+                "auto_saved": False,
+            }
+            try:
+                from termprep import export_bundle
+
+                decision_log.remember_input(
+                    pipeline_id,
+                    data.text,
+                    meta={
+                        "top_n": data.top_n,
+                        "template": data.template,
+                        "translate_mode": data.translate_mode,
+                        "use_ai": bool(data.use_ai),
+                        "use_rag": bool(data.use_rag),
+                        "steps": step_keys,
+                        "domain": analysis_result.domain,
+                        "lang": analysis_result.lang,
+                        "ai_provider": client_settings.get("ai_provider") or "",
+                        "ai_model": client_settings.get("ai_model") or "",
+                    },
+                )
+                bundle = export_bundle.build_case_bundle(
+                    session_id=pipeline_id,
+                    include_text=True,
+                    app_version=APP_VERSION,
+                    extra={
+                        "analysis": {
+                            "lang": analysis_result.lang,
+                            "domain": analysis_result.domain,
+                            "difficulty": analysis_result.difficulty,
+                            "chars": analysis_result.chars_total,
+                            "words_cn": analysis_result.words_cn,
+                            "words_en": analysis_result.words_en,
+                            "domain_scores": {
+                                k: round(v, 4) for k, v in analysis_result.domain_scores.items()
+                            },
+                        },
+                        "pipeline": {
+                            "template": data.template,
+                            "steps": selected,
+                            "step_status": result.step_status,
+                            "terms_count": len(result.terms),
+                            "glossary_total": len(result.glossary),
+                            "termbase_terms": result.termbase_terms,
+                            "full_translation_chars": len(result.full_translation or ""),
+                            "ai_used": result.ai_used,
+                            "duration": round(result.duration, 2),
+                            "errors": result.errors,
+                            "exports": result.exports,
+                        },
+                    },
+                )
+                snap = export_bundle.save_snapshot(bundle, label="pipeline")
+                case_bundle_info["snapshot"] = snap["name"]
+                case_bundle_info["auto_saved"] = True
+                case_bundle_info["download_url"] = (
+                    f"/api/cases/bundle?session_id={pipeline_id}&format=zip"
+                )
+            except Exception as e:
+                case_bundle_info["error"] = f"{type(e).__name__}: {e}"
+
             return {
                 "pipeline_id": pipeline_id,
                 "template": data.template,
+                # what the UI should render, resolved from the template
+                "steps": selected,
+                # what actually happened, per step (ok / skipped / failed + why)
+                "step_status": result.step_status,
                 "lang": result.analysis.lang if result.analysis else "",
                 "domain": result.analysis.domain if result.analysis else "",
                 "terms": [{"word": t.term, "freq": t.frequency, "type": t.word_type or "word", "score": round(t.score, 3)} for t in result.terms],
                 "terms_count": len(result.terms),
                 "glossary": result.glossary,
+                "glossary_total": len(result.glossary),
+                "glossary_untranslated": sum(
+                    1 for g in result.glossary
+                    if not g.get("translation") or g.get("translation") == "[未找到翻译]"
+                ),
                 "full_translation": result.full_translation,
                 "termbase_terms": result.termbase_terms,
                 "duration": round(result.duration, 1),
                 "errors": result.errors,
                 "report": report_text,
                 "report_path": result.report_path or "",
+                "exports": result.exports,
                 "ai_used": result.ai_used,
                 "translate_mode": result.translate_mode,
                 "segments": result.segments,
                 "translation_analysis": ta,
+                # §5.4.1 — 本次运行已落成一个可下载的个案数据包
+                "case": case_bundle_info,
             }
         except Exception as e:
             raise HTTPException(500, str(e))
+
+    # ════════════════════════════════════════════════════════════════
+    #  Human-in-the-loop 流水线（检查点模式）
+    # ════════════════════════════════════════════════════════════════
+    # 与 /api/pipeline、/api/pipeline/v2 的「全自动模式」并存：
+    #   start  → 只跑 analyze + extract，返回候选术语与 session_id
+    #   （译员在页面上裁决：采纳/剔除/修正/合并/新增）
+    #   resume → 按裁决过滤/修正/合并后，继续 glossary → full_translate
+    #            → termbase → report → export
+    # 会话仅存内存（TTL 1h），结构与 _pipeline_events 一致。
+
+    @app.post("/api/pipeline/start")
+    def api_pipeline_start(data: PipelineStartIn, request: Request):
+        """HITL 检查点 1/2：分析 + 提取，返回候选术语供译员裁决。"""
+        if not data.text.strip():
+            raise HTTPException(400, "No input text")
+
+        client_settings = _ai_settings_from_request(request)
+        session_id = f"hitl-{uuid.uuid4().hex[:12]}"
+
+        analysis_result = analyze(data.text)
+        raw_terms = extract(data.text, top_n=data.top_n)
+
+        # P4 AI 复核（可选）：与 /api/extract 一致，未配置 AI 时完全不改动候选
+        verification: dict = {"used": False, "reason": "AI not configured"}
+        rejected_by_ai: list[dict] = []
+        kept_terms = raw_terms
+        if client_settings.get("ai_api_key"):
+            try:
+                from termprep.services.term_verifier import normalise_term, verify_terms
+
+                decisions, verification = verify_terms(
+                    [t.term for t in raw_terms],
+                    context=data.text,
+                    settings=client_settings,
+                )
+                if decisions:
+                    kept_terms, dropped = [], []
+                    for t in raw_terms:
+                        d = decisions.get(normalise_term(t.term))
+                        if d is not None and d.get("is_term") is False:
+                            dropped.append({"word": t.term,
+                                            "type": d.get("type", ""),
+                                            "reason": d.get("reason", "")})
+                        else:
+                            kept_terms.append(t)
+                    rejected_by_ai = dropped
+            except Exception as e:
+                verification = {"used": False, "reason": f"verifier error: {type(e).__name__}"}
+
+        candidates = []
+        for t in kept_terms:
+            score, breakdown = explainable_score(
+                t.term, data.text, frequency=t.frequency, word_type=t.word_type or ""
+            )
+            candidates.append({
+                "word": t.term,
+                "freq": t.frequency,
+                "type": t.word_type or "word",
+                "score": score,
+                "score_breakdown": breakdown,
+                "pos": guess_pos(t.term),
+                "translation": "",   # 供译员填写/修正
+            })
+
+        params = {
+            "top_n": data.top_n,
+            "project_name": data.project_name,
+            "source_file": data.source_file,
+            "domain_hint": data.domain_hint or analysis_result.domain,
+            "domain": analysis_result.domain,
+            "lang": analysis_result.lang,
+            "mode": "hitl",
+            "ai_provider": client_settings.get("ai_provider") or "",
+            "ai_model": client_settings.get("ai_model") or "",
+        }
+        analysis_payload = {
+            "lang": analysis_result.lang,
+            "domain": analysis_result.domain,
+            "difficulty": analysis_result.difficulty,
+            "chars": analysis_result.chars_total,
+            "words_cn": analysis_result.words_cn,
+            "words_en": analysis_result.words_en,
+            "domain_scores": {k: round(v, 4) for k, v in analysis_result.domain_scores.items()},
+        }
+        _hitl_clean()
+        _hitl_save(session_id, {
+            "session_id": session_id,
+            "text": data.text,
+            "project_name": data.project_name,
+            "params": params,
+            "analysis": analysis_payload,
+            "terms": candidates,
+        })
+        # 存原文 + 参数：resume / 个案数据包都依赖它
+        try:
+            decision_log.remember_input(session_id, data.text, meta=params)
+        except Exception:
+            pass
+
+        return {
+            "session_id": session_id,
+            "expires_in": _HITL_TTL,
+            "project_name": data.project_name,
+            "lang": analysis_result.lang,
+            "domain": analysis_result.domain,
+            "difficulty": analysis_result.difficulty,
+            "analysis": analysis_payload,
+            "terms": candidates,
+            "terms_count": len(candidates),
+            "verification": verification,
+            "rejected": rejected_by_ai,
+            "next": f"POST /api/pipeline/{session_id}/resume 提交裁决后继续",
+        }
+
+    @app.get("/api/pipeline/{session_id}")
+    def api_pipeline_session(session_id: str):
+        """读取一个检查点会话（供页面刷新后恢复，不必重新提取）。"""
+        try:
+            sess = _hitl_get(session_id)
+        except Exception as e:
+            raise HTTPException(
+                503,
+                f"检查点存储暂时不可用（{type(e).__name__}）。请重试；"
+                "若持续失败请查看 /api/health 的 hitl 区块。",
+            )
+        if not sess:
+            raise HTTPException(
+                404,
+                "该检查点会话已过期或不存在（TTL 1 小时）。请在流水线页重新点"
+                "「① 开始：分析与提取」，裁决后立即继续。",
+            )
+        return {
+            "session_id": session_id,
+            "expires_at": sess.get("expires_at"),
+            "project_name": sess.get("project_name", ""),
+            "params": sess.get("params", {}),
+            "analysis": sess.get("analysis", {}),
+            "terms": sess.get("terms", []),
+            "terms_count": len(sess.get("terms") or []),
+        }
+
+    @app.post("/api/pipeline/{session_id}/resume")
+    def api_pipeline_resume(session_id: str, data: PipelineResumeIn, request: Request):
+        """HITL 检查点 2/2：按译员裁决继续执行后续步骤。"""
+        try:
+            sess = _hitl_get(session_id)
+        except Exception as e:
+            # 存储故障 ≠ 会话过期：必须区分开，否则会误导用户重新提取
+            raise HTTPException(
+                503,
+                f"检查点存储暂时不可用（{type(e).__name__}: {e}）。请重试；"
+                "若持续失败请查看 /api/health 的 hitl 区块。",
+            )
+        if not sess:
+            raise HTTPException(
+                404,
+                "该检查点会话已过期或不存在（TTL 1 小时）。请在流水线页重新点「开始：分析与提取」，"
+                "裁决后立即继续。",
+            )
+
+        client_settings = _ai_settings_from_request(request)
+        items = [it.model_dump() for it in data.terms]
+
+        adopted = _adopted_translations_from_log(session_id)
+        terms, glossary, stats = _apply_adjudication(
+            items, sess.get("terms") or [], adopted, data.adopted_translations, client_settings
+        )
+
+        # ── 整批裁决写入日志（不改变 /api/decisions/* 既有格式）──
+        try:
+            decision_log.record_many(
+                session_id=session_id,
+                step="adjudicate",
+                input_digest=(sess.get("text") or "")[:80],
+                items=[{
+                    "term": it.get("word") or "",
+                    "system_suggestion": it.get("edited_translation")
+                    or (it.get("merge_into") and f"merge_into:{it['merge_into']}") or "",
+                    "translator_verdict": ("merged" if (it.get("merge_into") or "").strip()
+                                           and it["merge_into"] != it.get("word")
+                                           else it.get("verdict") or "accepted"),
+                    "score": it.get("score"),
+                    "score_breakdown": it.get("score_breakdown"),
+                    "note": it.get("note") or "",
+                    "step": "adjudicate",
+                } for it in items if (it.get("word") or "").strip()],
+                input_text=sess.get("text") or "",
+                meta=sess.get("params") or {},
+                replace=True,
+            )
+        except Exception as e:
+            pass  # 日志失败不应阻断流水线
+
+        project = data.project_name or sess.get("project_name") or "Untitled"
+
+        def _emit(name: str, status: str, detail: str) -> None:
+            _push_pipeline_event(session_id, "step", {
+                "name": name, "status": status, "detail": detail,
+            })
+
+        result = run_pipeline(
+            text=sess.get("text") or "",
+            project_name=project,
+            top_n=data.top_n,
+            use_ai=data.use_ai,
+            ai_engine=data.engine,
+            translate_mode=data.translate_mode,
+            use_rag=data.use_rag,
+            settings=client_settings,
+            # 只跑裁决之后的步骤；extract/glossary 由 preset_* 直接接管
+            steps=["glossary", "full_translate", "termbase", "translate_analysis", "report", "export"],
+            preset_terms=terms,
+            preset_glossary=glossary,
+            export_formats=data.export_formats or ["csv", "json"],
+            pipeline_id=session_id,
+            on_event=_emit,
+        )
+        _push_pipeline_event(session_id, "pipeline_done", {"session_id": session_id})
+
+        # ── 落一个个案数据包快照（可复现）──
+        case_bundle_info: dict = {"session_id": session_id, "download_url": "", "snapshot": "",
+                                  "auto_saved": False}
+        try:
+            from termprep import export_bundle
+
+            bundle = export_bundle.build_case_bundle(
+                session_id=session_id,
+                include_text=True,
+                app_version=APP_VERSION,
+                extra={
+                    "analysis": sess.get("analysis") or {},
+                    "pipeline": {
+                        "mode": "hitl",
+                        "step_status": result.step_status,
+                        "adjudication": stats,
+                        "glossary_total": len(result.glossary),
+                        "termbase_terms": result.termbase_terms,
+                        "full_translation_chars": len(result.full_translation or ""),
+                        "errors": result.errors,
+                    },
+                },
+            )
+            snap = export_bundle.save_snapshot(bundle, label="hitl")
+            case_bundle_info.update({
+                "snapshot": snap["name"],
+                "auto_saved": True,
+                "download_url": f"/api/cases/bundle?session_id={session_id}&format=zip",
+            })
+        except Exception as e:
+            case_bundle_info["error"] = f"{type(e).__name__}: {e}"
+
+        return {
+            "session_id": session_id,
+            "mode": "hitl",
+            "adjudication": stats,
+            "steps": result.step_status,
+            "step_status": result.step_status,
+            "glossary": result.glossary,
+            "glossary_total": len(result.glossary),
+            "terms": [{"word": t.term, "freq": t.frequency, "type": t.word_type or ""}
+                      for t in result.terms],
+            "termbase_name": result.termbase_name,
+            "termbase_terms": result.termbase_terms,
+            "full_translation": result.full_translation,
+            "report": (open(result.report_path, encoding="utf-8").read()
+                       if result.report_path and os.path.isfile(result.report_path) else ""),
+            "report_path": result.report_path or "",
+            "exports": result.exports,
+            "errors": result.errors,
+            "adopted_translations": adopted,
+            "case": case_bundle_info,
+        }
 
     @app.get("/api/pipeline/events/{pipeline_id}")
     async def api_pipeline_events(pipeline_id: str):
@@ -766,11 +1906,19 @@ def create_app() -> FastAPI:
 
     # ── Serve frontend ──
     @app.get("/", response_class=HTMLResponse)
-    def index_html():
+    def index_html(request: Request):
         index_path = os.path.join(STATIC_DIR, "index.html")
         if os.path.isfile(index_path):
             with open(index_path, encoding="utf-8") as f:
-                return f.read()
+                content = f.read()
+            # Content-based ETag: browser revalidates (304) but updates instantly on rebuild
+            etag = '"' + hashlib.md5(content.encode("utf-8")).hexdigest() + '"'
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304)
+            return HTMLResponse(
+                content=content,
+                headers={"ETag": etag, "Cache-Control": "no-cache"},
+            )
         return HTMLResponse(status_code=404, content="index.html not found")
 
     # ════════════════════════════════════════════════════════════════
@@ -889,38 +2037,82 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(500, str(e))
 
-    # ── Async Task API ──
+    # ── Task API（同步实现；此前 submit 返回 task_id 而 status/execute 恒 501，是断头路）──
+    # 任务存到模块级 _AGENT_TASKS，而不是 orchestrator 实例上：API 每个请求都会新建
+    # orchestrator，实例内的 _tasks 拿不到上一次提交的任务，这正是原本只能 501 的原因。
     @app.post("/api/agents/task/submit")
     def api_agents_task_submit(data: AgentTaskSubmitIn, request: Request):
-        """Submit an async task and receive a task_id for polling."""
-        orch = _get_orchestrator(request)
-        task_id = orch.submit_task(data.task_type, data.payload)
-        return {"task_id": task_id, "status": "pending"}
+        """提交任务，返回可轮询的 task_id。"""
+        _agent_tasks_clean()
+        task_id = str(uuid.uuid4())
+        _AGENT_TASKS[task_id] = {
+            "task_id": task_id,
+            "task_type": data.task_type,
+            "payload": data.payload or {},
+            "status": "pending",
+            "result": None,
+            "error": "",
+            "created_at": time.time(),
+            "finished_at": None,
+        }
+        return {"task_id": task_id, "status": "pending",
+                "next": f"POST /api/agents/task/{task_id}/execute 同步执行"}
 
     @app.get("/api/agents/task/{task_id}")
     def api_agents_task_status(task_id: str):
-        """Poll task status and retrieve result."""
-        # Note: tasks are in-memory per orchestrator instance; this only works
-        # if the same worker handles submit and status. Disabled on HF Spaces.
-        raise HTTPException(501, "Async task polling is not supported in this deployment")
+        """轮询任务状态与结果。"""
+        _agent_tasks_clean()
+        task = _AGENT_TASKS.get(task_id)
+        if not task:
+            raise HTTPException(404, "task not found or expired (TTL 1h)")
+        return task
 
     @app.post("/api/agents/task/{task_id}/execute")
-    def api_agents_task_execute(task_id: str):
-        """Execute a pending task synchronously."""
-        raise HTTPException(501, "Async task execution is not supported in this deployment")
+    def api_agents_task_execute(task_id: str, request: Request):
+        """同步执行任务并把结果写回（不再返回 501）。"""
+        _agent_tasks_clean()
+        task = _AGENT_TASKS.get(task_id)
+        if not task:
+            raise HTTPException(404, "task not found or expired (TTL 1h)")
+        if task["status"] == "done":
+            return task
 
-    @app.get("/api/debug/env")
+        task["status"] = "running"
+        try:
+            # A fresh orchestrator per request, so replay the task into THIS
+            # instance before executing it (its _tasks dict starts empty).
+            orch = _get_orchestrator(request)
+            local_id = orch.submit_task(task["task_type"], task["payload"])
+            outcome = orch.execute_task(local_id)
+            if outcome.get("status") == "completed":
+                task["status"] = "done"
+                task["result"] = outcome.get("result")
+            else:
+                task["status"] = "failed"
+                task["error"] = "; ".join(outcome.get("errors") or []) or "execution failed"
+        except Exception as e:
+            task["status"] = "failed"
+            task["error"] = f"{type(e).__name__}: {e}"
+        task["finished_at"] = time.time()
+        return task
+
+    @app.get("/api/debug/env", dependencies=[Depends(require_admin)])
     def debug_env():
-        import os
+        """§5.3 — converged diagnostics: provider name + a single boolean.
+
+        Deliberately does **not** expose the api key, the base URL or the model
+        identifier (task book §1.2 / §5.3). The previous payload leaked the
+        upstream provider endpoint via ``*_base_url``; that field is gone.
+        Requires the admin token (§5.1).
+        """
+        env_provider = os.environ.get("TERMPREP_AI_PROVIDER", "")
+        provider = termprep_settings.ai_provider or env_provider
+        configured = bool(
+            termprep_settings.ai_api_key or os.environ.get("TERMPREP_AI_API_KEY")
+        )
         return {
-            "ai_provider_env": os.environ.get("TERMPREP_AI_PROVIDER", ""),
-            "ai_model_env": os.environ.get("TERMPREP_AI_MODEL", ""),
-            "ai_base_url_env": os.environ.get("TERMPREP_AI_BASE_URL", ""),
-            "ai_api_key_env_set": bool(os.environ.get("TERMPREP_AI_API_KEY")),
-            "settings_provider": termprep_settings.ai_provider,
-            "settings_model": termprep_settings.ai_model,
-            "settings_base_url": termprep_settings.ai_base_url,
-            "settings_key_set": bool(termprep_settings.ai_api_key),
+            "ai_configured": configured,
+            "provider": provider,
         }
 
     @app.get("/api/rag/stats")
@@ -944,7 +2136,7 @@ def create_app() -> FastAPI:
                 "counts": {"terms": 0, "corpus": 0, "documents": 0},
             }
 
-    @app.post("/api/rag/upload")
+    @app.post("/api/rag/upload", dependencies=[Depends(require_admin)])
     async def api_rag_upload(
         request: Request,
         file: UploadFile = File(...),
@@ -955,9 +2147,14 @@ def create_app() -> FastAPI:
         import uuid
 
         try:
-            suffix = os.path.splitext(file.filename or ".txt")[1]
+            # §5.2 — validate extension + size and sanitise the file name before
+            # anything touches the filesystem (temp dir is outside the code dir).
+            precheck_content_length(request.headers.get("content-length"))
+            content = await file.read()
+            safe_name = validate_upload(file.filename, len(content))
+
+            suffix = os.path.splitext(safe_name)[1].lower()
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                content = await file.read()
                 tmp.write(content)
                 tmp_path = tmp.name
 
@@ -1000,7 +2197,7 @@ def create_app() -> FastAPI:
             counts = store.count()
             return {
                 "document_id": doc_id,
-                "filename": file.filename,
+                "filename": safe_name,
                 "domain": med_domain.value,
                 "chunks_added": len(chunks),
                 "total_corpus": counts.get("corpus", 0),

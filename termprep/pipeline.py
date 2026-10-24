@@ -68,6 +68,10 @@ class PipelineResult:
     segments: list[dict] = field(default_factory=list)  # NEW: paragraph segments for mixed mode
     rag_metadata: dict[str, Any] = field(default_factory=dict)  # NEW: RAG retrieval metadata
     translation_qa: dict[str, Any] = field(default_factory=dict)  # NEW: AI QA review metadata
+    # NEW: per-step outcome (name/label/status/detail/duration). The UI used to
+    # show a decorative 1.2s-per-step animation, so a step that produced nothing
+    # was indistinguishable from a step that succeeded.
+    step_status: list[dict[str, Any]] = field(default_factory=list)
 
 
 def run_pipeline(
@@ -85,6 +89,12 @@ def run_pipeline(
     translate_mode: str = "auto",  # NEW: "auto" | "mixed" | "zh2en" | "en2zh"
     use_rag: bool = False,
     settings=None,
+    steps: list[str] | None = None,  # NEW: run only these steps (None = all)
+    # ── Human-in-the-loop support ──
+    pipeline_id: str = "",
+    on_event=None,  # Callable[[step_name, status, detail], None] — drives SSE
+    preset_terms: list | None = None,     # 译员裁决后的术语（跳过提取）
+    preset_glossary: list[dict] | None = None,  # 译员裁决后的 术语→译文（跳过 AI 术语翻译）
 ) -> PipelineResult:
     """Run the full pre-translation preparation pipeline.
 
@@ -120,232 +130,383 @@ def run_pipeline(
     start = time.time()
     active_settings = _pipeline_settings(settings)
 
+    # ── Step bookkeeping ──
+    # ``steps`` (when given) restricts the run to the template's declared steps,
+    # and every step records what actually happened so the UI can report the
+    # truth instead of animating a fake progress bar.
+    enabled = set(steps) if steps else None
+
+    def _mark(name: str, label: str, status: str, detail: str = "", started: float | None = None) -> None:
+        result.step_status.append({
+            "name": name,
+            "label": label,
+            "status": status,  # ok | skipped | failed
+            "detail": detail,
+            "duration": round(time.time() - started, 2) if started else 0.0,
+        })
+        # Drive the SSE stream: without this the /api/pipeline/events endpoint
+        # connected and then only sent keepalives (a dead feature).
+        if on_event is not None:
+            try:
+                on_event(name, status, detail)
+            except Exception:
+                pass
+
+    def _enabled(name: str) -> bool:
+        return enabled is None or name in enabled
+
     # ---- Step 1: Analyze ----
-    try:
-        if file_path:
-            result.analysis = analyze_file(file_path)
-        elif text:
-            result.analysis = analyze(text)
-        else:
-            result.errors.append("No input provided (file or text required)")
+    if not _enabled("analyze"):
+        _mark("analyze", "分析文本", "skipped", "模板未包含该步骤")
+    else:
+        _t0 = time.time()
+        try:
+            if file_path:
+                result.analysis = analyze_file(file_path)
+            elif text:
+                result.analysis = analyze(text)
+            else:
+                result.errors.append("No input provided (file or text required)")
+                _mark("analyze", "分析文本", "failed", "无输入文本", _t0)
+                return result
+            _mark("analyze", "分析文本", "ok",
+                  f"{result.analysis.lang} · {result.analysis.domain}", _t0)
+        except Exception as e:
+            result.errors.append(f"Analysis failed: {e}")
+            _mark("analyze", "分析文本", "failed", str(e), _t0)
             return result
-    except Exception as e:
-        result.errors.append(f"Analysis failed: {e}")
-        return result
 
     source_text = text or (open(file_path, encoding="utf-8").read() if file_path else "")
 
     # ---- Step 2: Extract Terms ----
-    try:
-        if file_path:
-            result.terms = extract_file(file_path, top_n=top_n)
-        else:
-            result.terms = extract(text, top_n=top_n)
-    except Exception as e:
-        result.errors.append(f"Extraction failed: {e}")
+    if preset_terms is not None:
+        # Human-in-the-loop: 译员已在检查点完成裁决，直接采用其结果，不再重新提取。
+        result.terms = list(preset_terms)
+        _mark("extract", "提取术语", "ok",
+              f"采用译员裁决列表（{len(result.terms)} 项）")
+    elif not _enabled("extract"):
+        _mark("extract", "提取术语", "skipped", "模板未包含该步骤")
+    else:
+        _t0 = time.time()
+        try:
+            if file_path:
+                result.terms = extract_file(file_path, top_n=top_n)
+            else:
+                result.terms = extract(text, top_n=top_n)
+            _raw_count = len(result.terms)
+            _detail = f"{_raw_count} 项候选"
+
+            # ── P4 — AI 复核（可选）：一次批量调用，剔掉形态合法但非术语的长短语
+            # 与冗长形式。未配置/失败时**完全不改动候选**（优雅降级）。
+            if (active_settings.get("ai_api_key")
+                    and active_settings.get("term_verify_ai", True) is not False):
+                try:
+                    from termprep.services.term_verifier import (
+                        verify_terms,
+                        normalise_term,
+                    )
+                    decisions, _vmeta = verify_terms(
+                        [t.term for t in result.terms],
+                        context=source_text,
+                        settings=active_settings,
+                    )
+                    if decisions:
+                        kept = []
+                        dropped = 0
+                        for t in result.terms:
+                            d = decisions.get(normalise_term(t.term))
+                            if d is not None and d.get("is_term") is False:
+                                dropped += 1
+                                continue
+                            kept.append(t)
+                        result.terms = kept
+                        _detail = (
+                            f"{_raw_count} 项候选 → AI 复核保留 {len(kept)} 项"
+                            f"（剔除 {dropped} 项）"
+                        )
+                except Exception as e:
+                    result.errors.append(f"AI term verification skipped: {e}")
+
+            _mark("extract", "提取术语", "ok", _detail, _t0)
+        except Exception as e:
+            result.errors.append(f"Extraction failed: {e}")
+            _mark("extract", "提取术语", "failed", str(e), _t0)
 
     # ---- Step 3: Build Glossary (Agent-enhanced or legacy) ----
     glossary_obj: Glossary | None = None
-    if use_ai:
-        # NEW: Use TermAgent for standardized glossary
-        try:
-            term_agent = TermAgent(active_settings)
-            glossary_obj = term_agent.run(
-                text=source_text,
-                project_name=project_name,
-                source_file=file_path or "",
-                top_n=top_n,
-                domain_hint=result.analysis.domain if result.analysis else "",
-            )
-            result.glossary_json = glossary_obj.model_dump_json()
-            result.ai_used = True
-            # Convert to backward-compatible flat glossary
-            for t in glossary_obj.terms:
-                result.glossary.append({
-                    "term": t.source_term,
-                    "translation": t.target_translation or "[未找到翻译]",
-                    "freq": t.frequency,
-                    "type": t.term_type,
-                    "context": t.source_context,
-                    "confidence": t.confidence.value,
-                    "status": t.status.value,
-                    "term_id": t.term_id,
-                })
-        except Exception as e:
-            result.errors.append(f"AI TermAgent failed: {e}; falling back to legacy.")
-            use_ai = False
-            result.ai_used = False
-
-    if not use_ai:
-        # LEGACY: old Google/Youdao term-by-term translation
-        is_cn_source = result.analysis and result.analysis.lang in ("zh", "mixed")
-        for term_entry in result.terms:
-            t = term_entry.term
-            if len(t) < 2:
-                continue
+    if preset_glossary is not None:
+        # Human-in-the-loop: 译文已由译员裁决确定（edited_translation / 词典检索采用 /
+        # 引擎补齐），不再调用 AI 术语翻译，避免覆盖译员的决定。
+        result.glossary = [dict(g) for g in preset_glossary]
+        result.ai_used = bool(use_ai)
+        _mark("glossary", "生成术语表", "ok",
+              f"采用译员裁决译文（{len(result.glossary)} 条）")
+    elif not _enabled("glossary"):
+        _mark("glossary", "生成术语表", "skipped", "模板未包含该步骤")
+    else:
+        _t0 = time.time()
+        if use_ai:
+            # NEW: Use TermAgent for standardized glossary
             try:
-                if is_cn_source:
-                    trans = _translate_cn_to_en(t)
-                else:
-                    trans = _translate_en_to_cn(t)
-                ctx = _find_context(source_text, t)
-                result.glossary.append({
-                    "term": t,
-                    "translation": trans or "[未找到翻译]",
-                    "freq": term_entry.frequency,
-                    "type": term_entry.word_type,
-                    "context": ctx,
-                })
-            except Exception:
-                continue
+                term_agent = TermAgent(active_settings)
+                glossary_obj = term_agent.run(
+                    text=source_text,
+                    project_name=project_name,
+                    source_file=file_path or "",
+                    top_n=top_n,
+                    domain_hint=result.analysis.domain if result.analysis else "",
+                )
+                result.glossary_json = glossary_obj.model_dump_json()
+                result.ai_used = True
+                # Convert to backward-compatible flat glossary
+                for t in glossary_obj.terms:
+                    result.glossary.append({
+                        "term": t.source_term,
+                        "translation": t.target_translation or "[未找到翻译]",
+                        "freq": t.frequency,
+                        "type": t.term_type,
+                        "context": t.source_context,
+                        "confidence": t.confidence.value,
+                        "status": t.status.value,
+                        "term_id": t.term_id,
+                    })
+            except Exception as e:
+                result.errors.append(f"AI TermAgent failed: {e}; falling back to legacy.")
+                use_ai = False
+                result.ai_used = False
+
+        if not use_ai and _enabled("glossary"):
+            # LEGACY: old Google/Youdao term-by-term translation
+            is_cn_source = result.analysis and result.analysis.lang in ("zh", "mixed")
+            for term_entry in result.terms:
+                t = term_entry.term
+                if len(t) < 2:
+                    continue
+                try:
+                    if is_cn_source:
+                        trans = _translate_cn_to_en(t)
+                    else:
+                        trans = _translate_en_to_cn(t)
+                    ctx = _find_context(source_text, t)
+                    result.glossary.append({
+                        "term": t,
+                        "translation": trans or "[未找到翻译]",
+                        "freq": term_entry.frequency,
+                        "type": term_entry.word_type,
+                        "context": ctx,
+                    })
+                except Exception:
+                    continue
+
+        # Report how complete the glossary actually is — a partially translated
+        # glossary used to look identical to a fully translated one.
+        _untranslated = sum(
+            1 for g in result.glossary if not g.get("translation") or g["translation"] == "[未找到翻译]"
+        )
+        if not result.glossary:
+            _g_status, _g_detail = "failed", "未生成任何术语条目"
+        elif _untranslated:
+            _g_status, _g_detail = "ok", f"{len(result.glossary)} 条，其中 {_untranslated} 条未译出"
+        else:
+            _g_status, _g_detail = "ok", f"{len(result.glossary)} 条，全部已译"
+        _mark("glossary", "生成术语表", _g_status, _g_detail, _t0)
 
     # Prepare glossary for injection (used by AI translation in Step 4)
     glossary_compact = glossary_obj.to_compact() if glossary_obj else []
 
     # ---- Step 4: Full-text Translation ----
-    try:
-        is_cn = bool(re.search(r'[\u4e00-\u9fff]', source_text))
+    if not _enabled("full_translate"):
+        _mark("full_translate", "全文翻译", "skipped", "模板未包含该步骤")
+    else:
+        _t0 = time.time()
+        try:
+            is_cn = bool(re.search(r'[\u4e00-\u9fff]', source_text))
 
-        if translate_mode == "mixed":
-            from termprep.translator import translate_text_mixed
-            mixed_result = translate_text_mixed(
-                source_text,
-                domain=result.analysis.domain if result.analysis else "general",
-                engine=ai_engine if use_ai else None,
-                settings=active_settings,
-                use_rag=use_rag,
-                glossary=glossary_compact if use_ai and result.ai_used else None,
-            )
-            result.full_translation = mixed_result.translated_text
-            result.rag_metadata = mixed_result.rag_metadata or {}
-            result.segments = [
-                {"index": seg.index, "source": seg.source, "target": seg.target, "highlights": seg.highlights}
-                for seg in mixed_result.segments
-            ]
-
-        elif translate_mode == "zh2en":
-            if use_ai and result.ai_used:
-                svc = TranslationService(active_settings)
-                svc.load_engines()
-                trans_result = svc.translate(text=source_text, source_lang="zh", target_lang="en", domain=result.analysis.domain if result.analysis else "general", engine=ai_engine, glossary=glossary_compact, use_rag=use_rag)
-                result.full_translation = trans_result.text
-                result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
-                result.translation_qa = getattr(trans_result, 'metadata', {})
-            else:
-                result.full_translation = _translate_text(source_text, "zh-CN", "en")
-
-        elif translate_mode == "en2zh":
-            if use_ai and result.ai_used:
-                svc = TranslationService(active_settings)
-                svc.load_engines()
-                trans_result = svc.translate(text=source_text, source_lang="en", target_lang="zh", domain=result.analysis.domain if result.analysis else "general", engine=ai_engine, glossary=glossary_compact, use_rag=use_rag)
-                result.full_translation = trans_result.text
-                result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
-                result.translation_qa = getattr(trans_result, 'metadata', {})
-            else:
-                result.full_translation = _translate_text(source_text, "en", "zh-CN")
-
-        else:
-            # auto mode (legacy behavior)
-            if use_ai and result.ai_used:
-                svc = TranslationService(active_settings)
-                svc.load_engines()
-                src_lang = "zh" if is_cn else "en"
-                tgt_lang = "en" if is_cn else "zh"
-                trans_result = svc.translate(
-                    text=source_text,
-                    source_lang=src_lang,
-                    target_lang=tgt_lang,
+            if translate_mode == "mixed":
+                from termprep.translator import translate_text_mixed
+                mixed_result = translate_text_mixed(
+                    source_text,
                     domain=result.analysis.domain if result.analysis else "general",
-                    engine=ai_engine,
-                    glossary=glossary_compact,
+                    engine=ai_engine if use_ai else None,
+                    settings=active_settings,
                     use_rag=use_rag,
+                    glossary=glossary_compact if use_ai and result.ai_used else None,
                 )
-                result.full_translation = trans_result.text
-                result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
-                result.translation_qa = getattr(trans_result, 'metadata', {})
-                if trans_result.errors:
-                    result.errors.extend(trans_result.errors)
-            else:
-                if is_cn:
+                result.full_translation = mixed_result.translated_text
+                result.rag_metadata = mixed_result.rag_metadata or {}
+                result.segments = [
+                    {"index": seg.index, "source": seg.source, "target": seg.target, "highlights": seg.highlights}
+                    for seg in mixed_result.segments
+                ]
+
+            elif translate_mode == "zh2en":
+                if use_ai and result.ai_used:
+                    svc = TranslationService(active_settings)
+                    svc.load_engines()
+                    trans_result = svc.translate(text=source_text, source_lang="zh", target_lang="en", domain=result.analysis.domain if result.analysis else "general", engine=ai_engine, glossary=glossary_compact, use_rag=use_rag)
+                    result.full_translation = trans_result.text
+                    result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
+                    result.translation_qa = getattr(trans_result, 'metadata', {})
+                    if trans_result.errors:
+                        result.errors.extend(trans_result.errors)
+                else:
                     result.full_translation = _translate_text(source_text, "zh-CN", "en")
+
+            elif translate_mode == "en2zh":
+                if use_ai and result.ai_used:
+                    svc = TranslationService(active_settings)
+                    svc.load_engines()
+                    trans_result = svc.translate(text=source_text, source_lang="en", target_lang="zh", domain=result.analysis.domain if result.analysis else "general", engine=ai_engine, glossary=glossary_compact, use_rag=use_rag)
+                    result.full_translation = trans_result.text
+                    result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
+                    result.translation_qa = getattr(trans_result, 'metadata', {})
+                    if trans_result.errors:
+                        result.errors.extend(trans_result.errors)
                 else:
                     result.full_translation = _translate_text(source_text, "en", "zh-CN")
-    except Exception as e:
-        result.errors.append(f"Full translation failed: {e}")
+
+            else:
+                # auto mode (legacy behavior)
+                if use_ai and result.ai_used:
+                    svc = TranslationService(active_settings)
+                    svc.load_engines()
+                    src_lang = "zh" if is_cn else "en"
+                    tgt_lang = "en" if is_cn else "zh"
+                    trans_result = svc.translate(
+                        text=source_text,
+                        source_lang=src_lang,
+                        target_lang=tgt_lang,
+                        domain=result.analysis.domain if result.analysis else "general",
+                        engine=ai_engine,
+                        glossary=glossary_compact,
+                        use_rag=use_rag,
+                    )
+                    result.full_translation = trans_result.text
+                    result.rag_metadata = getattr(trans_result, 'rag_metadata', {})
+                    result.translation_qa = getattr(trans_result, 'metadata', {})
+                    if trans_result.errors:
+                        result.errors.extend(trans_result.errors)
+                else:
+                    if is_cn:
+                        result.full_translation = _translate_text(source_text, "zh-CN", "en")
+                    else:
+                        result.full_translation = _translate_text(source_text, "en", "zh-CN")
+
+            # A silently empty translation is a FAILURE, not a success. Previously
+            # an empty result was reported identically to a step that never ran —
+            # exactly the "看不到第四步全文翻译" symptom.
+            if result.full_translation and result.full_translation.strip():
+                _mark("full_translate", "全文翻译", "ok",
+                      f"{len(result.full_translation)} 字符", _t0)
+            else:
+                _why = result.errors[-1] if result.errors else "翻译引擎未返回内容"
+                result.errors.append(
+                    "全文翻译未产出内容：AI 与免费引擎均不可用、超时或被限流，请检查 AI 配置后重试。"
+                )
+                _mark("full_translate", "全文翻译", "failed", _why, _t0)
+        except Exception as e:
+            result.errors.append(f"Full translation failed: {e}")
+            _mark("full_translate", "全文翻译", "failed", str(e), _t0)
 
     # ---- Step 5: Build Termbase ----
     tdb_name = _secure_filename(db_name or project_name)
-    try:
+    _t0 = time.time()
+    if not _enabled("termbase"):
+        _mark("termbase", "建立术语库", "skipped", "模板未包含该步骤")
+    else:
         try:
-            tdb = init_termbase(tdb_name, domain=result.analysis.domain if result.analysis else "")
-        except FileExistsError:
-            tdb = TermDB(db_name=tdb_name)
-
-        added = 0
-        for g in result.glossary:
             try:
-                tdb.add_term(
-                    word=g["term"],
-                    translation=g["translation"],
-                    domain=result.analysis.domain if result.analysis else "",
-                    type_=g.get("type", ""),
-                    status="confirmed" if g.get("translation") and g["translation"] != "[未找到翻译]" else "draft",
-                )
-                added += 1
-            except Exception:
-                continue
-        result.termbase_name = tdb_name
-        result.termbase_terms = added
-    except Exception as e:
-        result.errors.append(f"Termbase failed: {e}")
+                tdb = init_termbase(tdb_name, domain=result.analysis.domain if result.analysis else "")
+            except FileExistsError:
+                tdb = TermDB(db_name=tdb_name)
+
+            added = 0
+            for g in result.glossary:
+                try:
+                    tdb.add_term(
+                        word=g["term"],
+                        translation=g["translation"],
+                        domain=result.analysis.domain if result.analysis else "",
+                        type_=g.get("type", ""),
+                        status="confirmed" if g.get("translation") and g["translation"] != "[未找到翻译]" else "draft",
+                    )
+                    added += 1
+                except Exception:
+                    continue
+            result.termbase_name = tdb_name
+            result.termbase_terms = added
+            _mark("termbase", "建立术语库", "ok", f"{added} 条入库", _t0)
+        except Exception as e:
+            result.errors.append(f"Termbase failed: {e}")
+            _mark("termbase", "建立术语库", "failed", str(e), _t0)
 
     # ---- Step 5.5: Translation Analysis ----
     translation_analysis_data = None
-    try:
-        translation_analysis_data = analyze_translation_difficulty(
-            source_text=source_text,
-            lang=result.analysis.lang if result.analysis else "auto",
-            domain=result.analysis.domain if result.analysis else "general",
-            terms=[{"term": t.term, "score": t.score} for t in result.terms],
-            glossary=result.glossary,
-        )
-    except Exception as e:
-        result.errors.append(f"Translation analysis failed: {e}")
+    _t0 = time.time()
+    if not _enabled("translate_analysis"):
+        _mark("translate_analysis", "翻译难度分析", "skipped", "模板未包含该步骤")
+    else:
+        try:
+            translation_analysis_data = analyze_translation_difficulty(
+                source_text=source_text,
+                lang=result.analysis.lang if result.analysis else "auto",
+                domain=result.analysis.domain if result.analysis else "general",
+                terms=[{"term": t.term, "score": t.score} for t in result.terms],
+                glossary=result.glossary,
+            )
+            _mark("translate_analysis", "翻译难度分析", "ok", "", _t0)
+        except Exception as e:
+            result.errors.append(f"Translation analysis failed: {e}")
+            _mark("translate_analysis", "翻译难度分析", "failed", str(e), _t0)
 
     # ---- Step 6: Generate Report ----
-    try:
-        tdb = TermDB(db_name=tdb_name) if result.termbase_terms > 0 else None
-        db_stats = tdb.get_stats() if tdb else {}
-        if not report_output:
-            safe_name = _secure_filename(project_name)
-            report_output = f"{safe_name}-report.md"
-        report_text = generate_report(
-            analysis=result.analysis,
-            terms=result.terms,
-            glossary=result.glossary,
-            full_translation=result.full_translation,
-            db_stats=db_stats,
-            project_name=project_name,
-            source_file=file_path or "",
-            notes=notes,
-            translation_analysis=translation_analysis_data,
-            segments=result.segments,
-            source_text=source_text,
-            translation_qa=result.translation_qa,
-        )
-        # Append glossary JSON to report if available
-        if result.glossary_json:
-            report_text += "\n\n---\n\n"
-            report_text += "## 10. Standardized Glossary JSON (Agent Schema)\n\n"
-            report_text += f"```json\n{result.glossary_json}\n```\n"
-        save_report(report_text, report_output)
-        result.report_path = report_output
-    except Exception as e:
-        result.errors.append(f"Report generation failed: {e}")
+    _t0 = time.time()
+    if not _enabled("report"):
+        _mark("report", "生成报告", "skipped", "模板未包含该步骤")
+    else:
+        try:
+            tdb = TermDB(db_name=tdb_name) if result.termbase_terms > 0 else None
+            db_stats = tdb.get_stats() if tdb else {}
+            if not report_output:
+                safe_name = _secure_filename(project_name)
+                report_output = f"{safe_name}-report.md"
+            report_text = generate_report(
+                analysis=result.analysis,
+                terms=result.terms,
+                glossary=result.glossary,
+                full_translation=result.full_translation,
+                db_stats=db_stats,
+                project_name=project_name,
+                source_file=file_path or "",
+                notes=notes,
+                translation_analysis=translation_analysis_data,
+                segments=result.segments,
+                source_text=source_text,
+                translation_qa=result.translation_qa,
+            )
+            # Append glossary JSON to report if available
+            if result.glossary_json:
+                report_text += "\n\n---\n\n"
+                report_text += "## 10. Standardized Glossary JSON (Agent Schema)\n\n"
+                report_text += f"```json\n{result.glossary_json}\n```\n"
+            save_report(report_text, report_output)
+            result.report_path = report_output
+            _mark("report", "生成报告", "ok", result.report_path, _t0)
+        except Exception as e:
+            result.errors.append(f"Report generation failed: {e}")
+            _mark("report", "生成报告", "failed", str(e), _t0)
 
     # ---- Step 7: Export ----
-    if export_formats and result.termbase_terms > 0:
+    _t0 = time.time()
+    if not _enabled("export"):
+        _mark("export", "导出", "skipped", "模板未包含该步骤")
+    elif not export_formats:
+        # The template lists an export step, but nothing was requested. Say so
+        # instead of leaving the step silently missing from the run.
+        _mark("export", "导出", "skipped", "未指定导出格式")
+    elif result.termbase_terms <= 0:
+        _mark("export", "导出", "skipped", "术语库为空，无可导出内容")
+    else:
         tdb = TermDB(db_name=tdb_name)
         for fmt in export_formats:
             try:
@@ -360,6 +521,7 @@ def run_pipeline(
                 result.exports[fmt] = out_path
             except Exception as e:
                 result.errors.append(f"Export {fmt} failed: {e}")
+        _mark("export", "导出", "ok", ", ".join(result.exports.keys()) or "无", _t0)
 
     # NEW: Also export glossary JSON as a standalone file
     if result.glossary_json:

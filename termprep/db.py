@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DB_DIR = Path(__file__).parent.parent / "data"
+from termprep.storage import data_dir
+
+# Resolved through termprep.storage so the termbase lands in the same writable
+# directory as the TM / decision log, with a temp-dir fallback when the app
+# directory is read-only (some container runtimes).
+DB_DIR = Path(data_dir())
 DEFAULT_DB = "terms.db"
 
 
@@ -407,11 +412,19 @@ class TermDB:
 
 # ---- Module-level helpers ----
 
+# Runtime SQLite files that live in data/ but are NOT termbases. Without this
+# filter the decision log and the translation memory showed up in /api/db/list
+# as empty termbases.
+NON_TERMBASE_DB = frozenset({"translation_memory", "decision_log", "hitl_sessions"})
+
+
 def list_termbases() -> list[TermbaseInfo]:
     """List all termbase .db files in the data directory."""
     DB_DIR.mkdir(parents=True, exist_ok=True)
     dbs: list[TermbaseInfo] = []
     for f in sorted(DB_DIR.glob("*.db")):
+        if f.stem in NON_TERMBASE_DB:
+            continue
         try:
             tdb = TermDB(db_path=f)
             stats = tdb.get_stats()

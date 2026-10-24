@@ -1,0 +1,83 @@
+{
+  "_note": "TermPrep 术语提取内部评测集（AI 起草，供回归对比用；非人工双盲标注，不作为论文级金标准）。gold=必须命中的术语（计入召回）；ok_extra=有效但非必测的名词短语（不计噪声也不计召回，避免用标注不全冒充提取错误）；must_not=动宾/子句片段黑名单，出现即计噪声。",
+  "texts": [
+    {
+      "id": "zh-translation-studies",
+      "lang": "zh",
+      "domain": "translation",
+      "text": "本文以翻译研究中的译后编辑为切入点，考察译员在术语管理过程中的决策行为。研究方法采用质性研究设计，语料来自某高校翻译硕士课程的课堂实践。研究发现，当机器翻译输出的术语一致性较低时，译员的译后编辑工作量显著增加。译员通常借助术语库和翻译记忆工具来保证术语的一致性，但术语提取环节仍依赖人工判断。多智能体编排改变了译员的工作重心，使其从被动修改转向主动规划翻译流程。本文认为，构建可审计的术语工作流有助于提升翻译质量与翻译效率。",
+      "gold": [
+        "翻译研究", "译后编辑", "术语管理", "质性研究", "研究设计",
+        "机器翻译", "术语一致性", "译后编辑工作量", "术语库", "翻译记忆",
+        "术语提取", "人工判断", "多智能体编排", "工作重心", "翻译流程",
+        "术语工作流", "翻译质量", "翻译效率", "决策行为", "译员", "语料"
+      ],
+      "ok_extra": [
+        "切入点", "高校翻译硕士课程", "术语管理过程", "翻译记忆工具",
+        "术语提取环节", "质性研究设计", "管理过程"
+      ],
+      "must_not": [
+        "考察译员", "语料来自", "研究发现", "保证术语", "借助术语库",
+        "机器翻译输出", "依赖人工判断", "智能体编排改变", "被动修改转向主动规划"
+      ]
+    },
+    {
+      "id": "zh-medical",
+      "lang": "zh",
+      "domain": "medical",
+      "text": "本研究回顾了免疫检查点抑制剂在非小细胞肺癌治疗中的应用。患者接受程序性死亡受体1抑制剂治疗后，客观缓解率显著提高。常见不良反应包括免疫相关性肺炎和甲状腺功能异常。研究采用回顾性队列研究设计，纳入120例晚期肺癌患者。结果表明，联合化疗组的无进展生存期优于单药治疗组。",
+      "gold": [
+        "免疫检查点抑制剂", "非小细胞肺癌", "程序性死亡受体1抑制剂", "客观缓解率",
+        "不良反应", "免疫相关性肺炎", "甲状腺功能异常", "回顾性队列研究",
+        "晚期肺癌", "联合化疗", "无进展生存期", "单药治疗"
+      ],
+      "ok_extra": [
+        "肺癌患者", "抑制剂治疗", "队列研究"
+      ],
+      "must_not": [
+        "患者接受", "治疗后", "研究采用", "结果表明", "纳入120例",
+        "联合化疗组", "本研究回顾"
+      ]
+    },
+    {
+      "id": "en-translation-studies",
+      "lang": "en",
+      "domain": "translation",
+      "text": "This study examines post-editing effort in translation workflows. The research adopts a qualitative methodology and a corpus-based approach. Translators use translation memory and terminology management tools to ensure consistency. Machine translation quality assurance requires systematic revision of the target text. Multi-agent orchestration shifts the translator's role from post-editor to workflow orchestrator. The findings suggest that auditable terminology workflows improve translation quality.",
+      "gold": [
+        "post-editing effort", "translation workflows", "qualitative methodology",
+        "corpus-based approach", "translation memory", "terminology management",
+        "machine translation", "quality assurance", "target text",
+        "multi-agent orchestration", "workflow orchestrator", "translation quality",
+        "machine translation quality assurance"
+      ],
+      "ok_extra": [
+        "translator's role", "systematic revision", "auditable terminology workflows"
+      ],
+      "must_not": [
+        "study examines post-editing", "examines post-editing effort",
+        "research adopts", "adopts a qualitative", "ensure consistency",
+        "findings suggest", "translators use"
+      ]
+    },
+    {
+      "id": "en-nlp",
+      "lang": "en",
+      "domain": "it",
+      "text": "This paper proposes a retrieval-augmented generation framework for low-resource machine translation. We fine-tune a large language model on parallel corpora and evaluate it with BLEU and COMET metrics. Ablation experiments show that terminology constraints improve lexical consistency. The proposed method outperforms the baseline system on domain-specific benchmarks.",
+      "gold": [
+        "retrieval-augmented generation", "low-resource machine translation",
+        "large language model", "parallel corpora", "BLEU", "COMET",
+        "ablation experiments", "terminology constraints", "lexical consistency",
+        "baseline system", "domain-specific benchmarks"
+      ],
+      "ok_extra": [
+        "retrieval-augmented generation framework", "proposed method"
+      ],
+      "must_not": [
+        "paper proposes", "we fine-tune", "experiments show", "method outperforms",
+        "evaluate it", "proposed method outperforms"
+      ]
+    }
+  ]
+}

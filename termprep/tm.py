@@ -2,14 +2,20 @@
 
 import sqlite3, hashlib, time, os, re
 
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data")
-DB_PATH = os.path.join(DB_DIR, "translation_memory.db")
+from termprep.storage import connect_db, data_dir, db_path
+
+# Resolved through termprep.storage: prefers <project>/data, falls back to a
+# writable temp directory when the container's app dir is read-only.
+DB_DIR = data_dir()
+DB_PATH = db_path("translation_memory.db")
 
 
 def _get_db() -> sqlite3.Connection:
     os.makedirs(DB_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA journal_mode=WAL")
+    # storage.connect_db sets bus_timeout and avoids per-connection journal_mode
+    # switches (which need an exclusive lock and cause "database is locked" when
+    # several gunicorn workers open short-lived connections).
+    conn = connect_db(DB_PATH)
     conn.execute("""CREATE TABLE IF NOT EXISTS tm_entries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         source_hash TEXT NOT NULL,
@@ -36,22 +42,44 @@ def store(text: str, translation: str, source_lang: str = "auto", target_lang: s
         conn.execute("UPDATE tm_entries SET use_count = ?, created_at = ? WHERE id = ?",
                     (existing[1] + 1, time.time(), existing[0]))
     else:
-        conn.execute("INSERT INTO tm_entries (source_hash, source_text, target_text, source_lang, target_lang, domain) VALUES (?,?,?,?,?,?)",
-                    (source_hash, text, translation, source_lang, target_lang, domain))
+        # §5.9c — write an explicit float timestamp. The old table default was
+        # strftime('%s','now'), which has only second granularity, so a row stored
+        # during a request could compare as "older" than that request's cut-off
+        # and immediately match itself again.
+        conn.execute("INSERT INTO tm_entries (source_hash, source_text, target_text, source_lang, target_lang, domain, created_at) VALUES (?,?,?,?,?,?,?)",
+                    (source_hash, text, translation, source_lang, target_lang, domain, time.time()))
     conn.commit()
     conn.close()
 
 
-def search(text: str, source_lang: str = "auto", target_lang: str = "auto", domain: str = "general", limit: int = 5) -> list[dict]:
-    """Search for matching translations. Exact match first, then fuzzy."""
+def search(text: str, source_lang: str = "auto", target_lang: str = "auto", domain: str = "general", limit: int = 5, exclude_after: float | None = None) -> list[dict]:
+    """Search for matching translations. Exact match first, then fuzzy.
+
+    §5.9c — ``exclude_after`` (a UNIX timestamp) drops every entry written at or
+    after that instant. The previous behaviour stored the freshly produced
+    translation *before* querying, so the first translation of any new text
+    always "matched itself" with ``match_type: "exact", score: 1.0`` and the TM
+    hit-rate was a meaningless metric.
+    """
     conn = _get_db()
     source_hash = _hash(text)
     results = []
+
+    def _is_fresh(created_at: float | None) -> bool:
+        """True when the row was written before this request started."""
+        if exclude_after is None or created_at is None:
+            return True
+        try:
+            return float(created_at) < exclude_after
+        except (TypeError, ValueError):
+            return True
 
     # Exact match
     rows = conn.execute("SELECT * FROM tm_entries WHERE source_hash = ? ORDER BY use_count DESC LIMIT ?",
                        (source_hash, limit)).fetchall()
     for r in rows:
+        if not _is_fresh(r[8]):
+            continue
         results.append({
             "source": r[2], "target": r[3], "domain": r[6],
             "use_count": r[7], "match_type": "exact", "score": 1.0
@@ -67,6 +95,8 @@ def search(text: str, source_lang: str = "auto", target_lang: str = "auto", doma
             ).fetchall()
             seen = {r["source"] for r in results}
             for r in fuzzy_rows:
+                if not _is_fresh(r[8]):
+                    continue
                 if r[2] not in seen:
                     results.append({
                         "source": r[2], "target": r[3], "domain": r[6],
@@ -78,7 +108,37 @@ def search(text: str, source_lang: str = "auto", target_lang: str = "auto", doma
     return results[:limit]
 
 
+def dump_all(limit: int = 5000) -> list[dict]:
+    """Return every TM entry (newest first).
+
+    Used by the case-bundle export so a case study can be reconstructed
+    elsewhere: container-local SQLite is wiped on rebuild, the exported bundle
+    is not.
+    """
+    conn = _get_db()
+    rows = conn.execute(
+        "SELECT source_text, target_text, source_lang, target_lang, domain,"
+        " use_count, created_at FROM tm_entries ORDER BY id DESC LIMIT ?",
+        (max(1, int(limit)),),
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            "source": r[0], "target": r[1], "source_lang": r[2],
+            "target_lang": r[3], "domain": r[4], "use_count": r[5],
+            "created_at": r[6],
+        }
+        for r in rows
+    ]
+
+
 def stats() -> dict:
+    """Aggregate TM statistics.
+
+    §5.9e — ``source``/``target`` are returned in full. They used to be sliced to
+    60 characters, which is why the only live entry showed a truncated target
+    (``"...administrative management is ineffici"``) and looked like data loss.
+    """
     conn = _get_db()
     total = conn.execute("SELECT COUNT(*) FROM tm_entries").fetchone()[0]
     domains = conn.execute("SELECT domain, COUNT(*) FROM tm_entries GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 5").fetchall()
@@ -87,7 +147,7 @@ def stats() -> dict:
     return {
         "total": total,
         "domains": {d: c for d, c in domains},
-        "recent": [{"source": r[0][:60], "target": r[1][:60], "count": r[2]} for r in recent]
+        "recent": [{"source": r[0], "target": r[1], "count": r[2]} for r in recent]
     }
 
 

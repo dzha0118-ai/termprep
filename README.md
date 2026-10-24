@@ -7,97 +7,192 @@ sdk: docker
 pinned: false
 ---
 
-# TermPrep v2
+# TermPrep — 译前术语准备与翻译编排平台
 
-AI 驱动的术语管理与翻译工作台。
+> 把"一键跑到底"的翻译流水线，改成译员能在关键节点**暂停、裁决、修正、再继续**的
+> Human-in-the-loop 工作流。术语提取、中英互译、术语库、翻译记忆、可复现的个案数据包。
 
-## 架构
+**在线体验：** https://dzha0118-termprep.hf.space
+
+- 后端：FastAPI（单进程 gunicorn + uvicorn worker）
+- 前端：**单个 `web/static/index.html`**（原生 JS，零构建、零 npm）
+- 存储：SQLite（术语库 / 翻译记忆 / 裁决日志 / 检查点会话）
+- 部署：Docker（Hugging Face Space 或任意容器平台）
+
+---
+
+## ✨ 核心特性
+
+### 两种流水线模式
+
+| 模式 | 端点 | 说明 |
+|---|---|---|
+| **检查点模式**（默认，推荐） | `POST /api/pipeline/start` → 译员裁决 → `POST /api/pipeline/{id}/resume` | 跑到术语提取后**暂停**，译员逐条裁决后再继续 ④术语表 → ⑤全文翻译 → ⑥术语库 → ⑦报告 → ⑧导出 |
+| 全自动模式 | `POST /api/pipeline` / `POST /api/pipeline/v2` | 一键跑到底，中途不可干预 |
+
+检查点模式支持五种裁决：**采纳 / 剔除 / 修正 / 合并 / 新增**。
+被剔除的术语绝不入库；修正项以译员给定值入库；合并项只保留一条并记录 `merged_from` 溯源；
+新增项走裁决日志（无需管理员令牌）。
+
+### 术语提取（多层校验）
 
 ```
-termprep/
-├── frontend/        # Vue 3 + Vite + TypeScript + Pinia + Element Plus
-├── backend/         # FastAPI + SQLAlchemy + PostgreSQL + Celery
-├── docker-compose.yml
-└── .env
+分析 → 规则提取（jieba/YAKE/C-Value/英文 NP 分块）→ 片段过滤 → 可选 AI 语义复核 → 排序
 ```
 
-## 快速开始（本地开发）
+- **谓词框架词表**剔除动宾/子句片段（`考察译员`、`study examines post-editing`…），
+  同时不误杀 `术语提取`、`联合化疗` 这类同构的真术语
+- **英文规则名词短语分块**：jieba 把英文一律标 `eng`，词性通道对英文无效，故单列一套
+- **可解释评分**：`score = 0.4·频次 + 0.3·词表命中 + 0.2·长度 + 0.1·形态`，并返回 `score_breakdown`
+- **可选 AI 语义复核**（P4）：一次批量调用剔掉"形态合法但非术语"的描述性短语；
+  未配置 AI、调用失败或回复不可解析时**完全不改动候选**
+- 内部评测集：4 篇文本 · 57 个金标准术语，`eval_term_extraction.py --check` 作为回归门禁
 
-### 1. 配置环境变量
+### 检索与翻译
+
+- **多源并发聚合**：有道 + Wikipedia + AI 同时检索，合并去重、`also_from` 跨源印证，词典源优先
+- 词典搜索支持逐条**采用 / 弃用**，采用结果在 resume 时优先作为该术语译文
+- 术语翻译**四通道补齐**（批量 → 小批量重试 → 免费引擎 → 单条 AI），并容忍 8 种回复格式
+- 术语高亮**与实际译文对齐**：`target_span` 必须能在译文中原样找到，否则不展示（宁可少标，不可错标）
+
+### 数据留存与可复现（论文级）
+
+容器本地 SQLite 会随重建清空，因此提供**可下载的个案数据包**：
 
 ```bash
-cp .env.example .env
-# 编辑 .env，填入你的 DeepSeek / OAuth2 密钥
+GET /api/cases/bundle?session_id=<id>&format=zip
 ```
 
-### 2. 启动服务
+内含：`manifest`（版本/确定性说明/隐私说明）、`input`（完整原文 + sha256）、`parameters`
+（运行参数 + provider/model，**绝无 key**）、`terms_recomputed`（用存储的入参**重跑**规则层）、
+`decisions`（裁决日志）、`termbases`（术语库全量）、`tm`，以及 `decisions.csv` / `terms.csv` / `README.txt`。
+
+> 规则层确定性 → 可用数据包复现；AI 阶段不确定 → 记录当次观测值，`manifest` 明确标注。
+
+### 安全
+
+- 写库 / 上传 / 调试端点需 `X-Admin-Token`（未配置令牌时 **fail-closed 503**）
+- 未配置令牌不泄露任何信息：`/api/debug/env` 收敛为 `{ai_configured, provider}`
+- 上传：扩展名白名单 + 单文件 10MB + 请求体上限 + 文件名穿越清洗
+
+---
+
+## 🚀 快速开始（本地）
 
 ```bash
-docker-compose up --build
+python -m venv .venv && . .venv/Scripts/activate     # Windows
+pip install -e .
+
+# 配置（可选；不配也能用免费引擎）
+cp .env.example .env    # 填写 TERMPREP_ADMIN_TOKEN / TERMPREP_AI_API_KEY
+
+python -m uvicorn web_entry:app --host 127.0.0.1 --port 8672
+# 打开 http://127.0.0.1:8672
 ```
 
-访问：
-- 前端：http://localhost:5173
-- 后端 API：http://localhost:8000/api/v1
-- API 文档：http://localhost:8000/docs
+## 🐳 部署到 Hugging Face Space
 
-### 3. 数据库迁移（首次）
+Space 需为 **Docker** 类型。把仓库内容（`Dockerfile`、`termprep/`、`web/`、`web_entry.py`、
+`pyproject.toml`、`requirements.txt`）推到 Space 仓库即可。
+
+> ⚠️ `Dockerfile` 里刻意用 **`gunicorn -w 1`**：检查点会话/裁决日志/翻译记忆都在容器内 SQLite，
+> 多 worker 会导致 `/start` 与 `/resume` 落到不同进程而报「session not found」。
+> 另设 `--timeout 300`，避免长 AI 调用被默认 30s 超时杀掉。
+
+### 需要配置的 Secrets
+
+| 名称 | 必填 | 说明 |
+|---|---|---|
+| `TERMPREP_ADMIN_TOKEN` | ✅ | 写库/上传/调试端点令牌，不配置则这些端点返回 503 |
+| `TERMPREP_AI_API_KEY` | 建议 | AI 密钥（术语翻译、全文翻译、AI 术语复核） |
+| `TERMPREP_AI_PROVIDER` | | `deepseek` / `kimi` / `openai` / `ollama` / `custom` |
+| `TERMPREP_AI_MODEL` | | 模型名 |
+| `TERMPREP_AI_BASE_URL` | | OpenAI-compatible 端点 |
+| `TERMPREP_YOUDAO_KEY` / `_SECRET` | | 有道词典（可选，双源检索） |
+| `TERMPREP_DATA_DIR` | 建议 | 指向持久目录（如 `/data`），否则容器重建会清空数据 |
+
+**自检：** `GET /api/health` 返回版本、引擎健康、术语库规模、令牌配置状态、
+数据留存状态（`storage.persistent`）与检查点存储自检（`hitl.self_test`）。
+
+---
+
+## 🔌 API 速览
+
+| 分类 | 端点 |
+|---|---|
+| 分析/提取 | `POST /api/analyze` · `POST /api/extract` |
+| 检索/关联 | `POST /api/search` · `POST /api/associate` · `POST /api/termbase/lookup` |
+| 翻译 | `POST /api/translate` · `POST /api/translate/upload`(admin) |
+| **检查点** | `POST /api/pipeline/start` · `GET /api/pipeline/{id}` · `POST /api/pipeline/{id}/resume` |
+| 全自动 | `POST /api/pipeline` · `POST /api/pipeline/v2` · `GET /api/pipeline/templates` |
+| 裁决日志 | `POST /api/decisions/record` · `GET /api/decisions/{list,summary,export}` |
+| **个案数据包** | `GET /api/cases/bundle` · `POST /api/cases/snapshot` · `GET /api/cases/snapshots` |
+| 术语库 | `GET /api/db/{list,info}` · `POST /api/term/{add(admin),search}` |
+| 运维 | `GET /api/health` · `GET /api/sources` · `GET /api/agents/engines` · `GET /api/debug/env`(admin) |
+
+完整的 OpenAPI 文档：`/docs`（Swagger UI）与 `/openapi.json`。
+
+---
+
+## 🧪 测试
+
+全部为本地可跑的回归套件（桩引擎，不消耗付费额度）：
+
+| 套件 | 覆盖 |
+|---|---|
+| `verify_hitl.py` | 检查点全链路（44 项）：start → 剔除/修正/合并/新增 → resume，逐项核对**真实术语库** |
+| `verify_hitl_storage.py` | 检查点存储的**多进程并发**稳定性（4 进程 × 60 次读写） |
+| `verify_acceptance.py` | 安全与功能验收（40 项） |
+| `verify_pipeline_fixes.py` | 流水线步骤/全文翻译回归（29 项） |
+| `verify_term_verifier.py` | AI 术语复核的降级与保守匹配（24 项） |
+| `verify_case_bundle.py` | **清库后仅凭数据包复现**（45 项） |
+| `eval_term_extraction.py --check` | 术语提取质量回归门禁 |
+| `live_test_space.py` | 线上 Space **只读**体检（42 项） |
 
 ```bash
-docker-compose exec backend alembic revision --autogenerate -m "init"
-docker-compose exec backend alembic upgrade head
+python verify_hitl.py
+python eval_term_extraction.py --check
 ```
 
-## 功能
+---
 
-- 🤖 AI 术语提取（DeepSeek / Kimi / OpenAI / Ollama）
-- 🌐 中英互译 + 中英混合翻译
-- 🔍 词典搜索 + AI 关联术语
-- 📚 个人词库与项目管理
-- ⚡ 翻译流水线（Celery 异步）
-- 🔐 GitHub / Google OAuth2 登录
-- 🌙 深色模式
+## 📁 目录结构
 
-## 部署到 Hugging Face Space
+```
+.
+├── Dockerfile                 # 单 worker gunicorn + 300s 超时
+├── web_entry.py               # ASGI 入口（gunicorn web_entry:app）
+├── pyproject.toml             # 依赖
+├── termprep/                  # 后端包
+│   ├── web/server.py          # FastAPI 全部端点
+│   ├── web/security.py        # 鉴权 + 上传校验
+│   ├── pipeline.py            # 8 步流水线（支持 preset / on_event / step_status）
+│   ├── extractor.py           # 多层术语提取 + 片段过滤 + 可解释评分
+│   ├── analyzer.py            # 语言/领域/难度分析
+│   ├── searcher.py            # 多源并发聚合检索
+│   ├── translator.py          # 翻译与高亮对齐
+│   ├── hitl_store.py          # 检查点会话（SQLite，多进程安全）
+│   ├── decision_log.py        # 裁决日志 + 会话输入留存
+│   ├── export_bundle.py       # 可复现个案数据包
+│   ├── storage.py             # 数据目录解析 + SQLite 连接（busy_timeout）
+│   ├── agents/ engines/ sources/ services/ rag/ interfaces/
+│   └── ...
+├── web/static/index.html      # 前端（单文件，无构建）
+└── verify_*.py / eval_*       # 回归套件
+```
 
-1. 创建 Space，选择 Docker 模板。
-2. 在 Space 的 Settings → Secrets 中添加：
-   - `DATABASE_URL`（外部 Postgres，如 Supabase / Neon）
-   - `REDIS_URL`（外部 Redis，如 Upstash）
-   - `SECRET_KEY`
-   - `AI_API_KEY`
-   - `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`（可选）
-   - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`（可选）
-3. 推送代码。
+---
 
-> 前端构建后会输出到 `backend/app/static/`，FastAPI 会自动 serve。
+## 📝 变更摘要（本轮优化）
 
-## API 路由
+- **安全**：写/上传端点鉴权、上传校验、debug 端点信息收敛
+- **提取**：片段过滤 + 英文 NP 分块 + 可解释评分；精确率 35.2% → 63.8%，片段泄漏 23 → 0
+- **检索**：双源并发聚合（不再被 AI 短路），`definition` 具备实质内容
+- **高亮**：`target_span` 与译文强对齐，杜绝误导
+- **领域**：新增 `academic` / `translation` / `humanities`，扩表 + 词边界匹配
+- **流水线**：真实 `step_status`、模板真正生效、全文翻译可见、SSE 真推送
+- **HITL**：检查点机制 + 页面阶段条 + 五种裁决 + 会话刷新可恢复
+- **数据留存**：裁决日志 + 可复现个案数据包；修正数据目录静默回退
+- **修复**：多 worker 导致检查点会话丢失（改单 worker + 读路径纯读 + busy_timeout）
 
-| 路由 | 说明 |
-|------|------|
-| `GET /api/v1/auth/me` | 当前用户 |
-| `GET /api/v1/auth/github/authorize` | GitHub 登录 |
-| `GET /api/v1/auth/google/authorize` | Google 登录 |
-| `POST /api/v1/analyze` | 文本分析 |
-| `POST /api/v1/translate` | 文本翻译 |
-| `POST /api/v1/translate/upload` | 文件翻译 |
-| `POST /api/v1/extract` | 术语提取 |
-| `POST /api/v1/search` | 词典搜索 |
-| `POST /api/v1/associate` | 关联术语 |
-| `POST /api/v1/pipeline` | 流水线 |
-| `GET /api/v1/tasks/{id}` | 异步任务状态 |
-| `GET/POST/PUT/DELETE /api/v1/terms` | 词库管理 |
-| `GET/POST/PUT/DELETE /api/v1/projects` | 项目管理 |
-| `GET /api/v1/engines` | 引擎健康状态 |
-
-## 技术栈
-
-- **前端**：Vue 3, Vite, TypeScript, Pinia, vue-router, Element Plus, Axios
-- **后端**：FastAPI, SQLAlchemy, Alembic, PostgreSQL, Celery, Redis
-- **AI**：DeepSeek / OpenAI / Kimi / Ollama（OpenAI-compatible）
-- **部署**：Docker, Hugging Face Space
-
-## 从 v1 迁移
-
-v1 的前端单文件 `web/static/index.html` 和旧的 `termprep/web/server.py` 已被保留，但不再维护。新的入口为 `backend/app/main.py` 和 `frontend/`。
+详细的逐项说明与验收记录见 [`OPTIMIZATION_REPORT.md`](OPTIMIZATION_REPORT.md)。

@@ -6,7 +6,8 @@
 <title>TermPrep — 译前术语准备平台</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Outfit:wght@400..700&family=DM+Serif+Display:ital@0;1&family=Noto+Sans+SC:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Outfit:wght@400..700&family=DM+Serif+Display:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* ── Reset & Base ── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -41,10 +42,10 @@
   --shadow-lg:0 8px 24px rgba(0,0,0,.06),0 2px 8px rgba(0,0,0,.04);
   --glass-bg:rgba(255,255,255,.75); --glass-border:rgba(229,229,229,.5);
   --glass-hover:rgba(255,255,255,.92);
-  --font:Inter,Noto Sans SC,-apple-system,system-ui,sans-serif;
-  --font-display:DM Serif Display,Georgia,Noto Serif SC,serif;
-  --font-ui:Outfit,Inter,Noto Sans SC,sans-serif;
-  --mono:JetBrains Mono,SF Mono,Cascadia Code,monospace;
+  --font:Inter,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",-apple-system,system-ui,sans-serif;
+  --font-display:"DM Serif Display",Georgia,"Noto Serif SC","Songti SC",serif;
+  --font-ui:Outfit,Inter,"PingFang SC","Microsoft YaHei",sans-serif;
+  --mono:"JetBrains Mono",SF Mono,Cascadia Code,Consolas,monospace;
   --nav-h:56px;
 }
 body{
@@ -825,6 +826,25 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
   border-radius:4px;transition:background .15s;line-height:1;
 }
 .btn-assoc:hover{background:var(--accent-soft)}
+
+/* ── 干预点标记 / 裁决记录（§5.11） ── */
+.decision-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px dashed var(--border);
+}
+.decision-summary{font-size:12px;color:var(--text-muted);line-height:1.6}
+.verdict-chip{
+  border:1px solid var(--border);background:transparent;color:var(--text-muted);
+  border-radius:5px;padding:2px 7px;font-size:11px;cursor:pointer;
+  margin-right:4px;transition:all .15s;
+}
+.verdict-chip:hover{border-color:var(--accent);color:var(--accent)}
+.verdict-chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent);font-weight:600}
+.verdict-chip.on.reject{background:var(--red-soft);border-color:var(--red);color:var(--red)}
+/* 检查点模式：被剔除 / 合并源 / 译员新增 的行状态 */
+tr.hitl-rejected{opacity:.45;text-decoration:line-through}
+tr.hitl-merge-src{background:var(--accent-soft);outline:1px dashed var(--accent)}
+tr.hitl-added{background:var(--green-soft)}
 </style>
 </head>
 <body>
@@ -983,6 +1003,12 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
           <input type="text" id="ai-base-url" placeholder="https://api.../v1">
           <div class="hint">自定义 API 或 Ollama 时填写</div>
         </div>
+        <div class="form-group">
+          <label for="admin-token">管理员令牌（上传 / 写库需要）</label>
+          <input type="password" id="admin-token" placeholder="与 HF Space 的 TERMPREP_ADMIN_TOKEN 一致"
+                 onchange="saveAdminToken()">
+          <div class="hint">仅保存在本会话；用于解锁文件上传与术语写库</div>
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
         <label class="toggle-switch">
@@ -1085,17 +1111,49 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
         <input type="number" id="extract-top" value="30" min="5" max="100">
       </div>
     </div>
-    <button class="btn btn-primary ai-btn" onclick="doExtract()">提取术语</button>
+    <button class="btn btn-primary ai-btn" onclick="doExtract()">提取术语（进入检查点）</button>
     <div class="spinner" id="extract-spinner"><div class="spinner-dot"></div>提取中…</div>
     <div class="result-box" id="extract-result">
-      <h4>提取结果</h4>
+      <h4>提取结果 · 译员裁决</h4>
+
+      <!-- 译员补充术语（走裁决日志，不需要 admin token） -->
+      <div class="form-row" style="margin-bottom:10px" data-term-form>
+        <div class="form-group">
+          <label>新增术语</label>
+          <input type="text" data-role="add-word" placeholder="译员补充的术语">
+        </div>
+        <div class="form-group">
+          <label>译文</label>
+          <input type="text" data-role="add-trans" placeholder="译文">
+        </div>
+        <div class="form-group">
+          <label>类型</label>
+          <input type="text" data-role="add-type" value="added">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end">
+          <button class="btn btn-sm btn-secondary" onclick="addTermRow(this)">＋ 添加到候选</button>
+        </div>
+      </div>
+
       <div class="table-wrap">
         <button class="btn btn-sm btn-secondary" onclick="translateAll()" id="trans-all-btn" style="display:none;margin-bottom:12px">翻译全部术语</button>
         <table>
-          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>翻译 / 释义</th></tr></thead>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>词性</th><th>翻译 / 释义</th><th>裁决</th></tr></thead>
           <tbody id="extract-table"></tbody>
         </table>
+        <!-- §5.11 item 3 — 干预点标记：系统建议 / 译员裁决，可导出为论文附录 -->
+        <div class="decision-bar">
+          <span id="decision-summary" class="decision-summary">本次会话尚未记录裁决——点「采纳 / 剔除 / 修正 / 合并」逐条裁决</span>
+          <button class="btn btn-sm btn-secondary" onclick="exportDecisions()">⤓ 导出裁决记录 CSV</button>
+        </div>
       </div>
+
+      <!-- Human-in-the-loop：裁决完成后继续跑后续步骤 -->
+      <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="resumePipeline()">✓ 确认裁决并继续流水线</button>
+        <span class="hitl-session-label" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div id="hitl-result" style="margin-top:14px;display:none"></div>
     </div>
   </div>
 </div>
@@ -1126,7 +1184,7 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
       <h4>搜索结果</h4>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>关联词</th><th>类型</th><th>释义/翻译</th><th>来源</th><th>相关度</th></tr></thead>
+          <thead><tr><th>关联词</th><th>类型</th><th>释义/翻译</th><th>来源</th><th>相关度</th><th>确认</th></tr></thead>
           <tbody id="search-table"></tbody>
         </table>
       </div>
@@ -1149,10 +1207,20 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
 <div class="page" id="page-pipeline">
   <div class="page-header">
     <div class="label">Pipeline</div>
-    <h2>全自动流水线</h2>
-    <p>分析 → 提取 → 搜索 → 入库 → 报告 → 导出，一键完成。</p>
+    <h2>流水线</h2>
+    <p>默认「检查点模式」：跑到术语提取后**停下来**，由你裁决，再继续。</p>
   </div>
   <div class="card">
+    <!-- 模式切换 -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="verdict-chip on" id="mode-hitl" onclick="setPipelineMode('hitl')">
+        检查点模式 · 可暂停裁决（推荐）
+      </button>
+      <button class="verdict-chip" id="mode-auto" onclick="setPipelineMode('auto')">
+        全自动模式 · 一键跑到底
+      </button>
+    </div>
+
     <div class="form-group">
       <label for="pipeline-text">输入文本</label>
       <textarea id="pipeline-text" placeholder="粘贴源文本…"></textarea>
@@ -1162,22 +1230,88 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
         <label for="pipeline-name">项目名称</label>
         <input type="text" id="pipeline-name" value="MyProject" placeholder="项目名称">
       </div>
+      <div class="form-group" id="pipeline-template-wrap">
+        <label for="pipeline-template">流水线模板</label>
+        <select id="pipeline-template">
+          <option value="full-pipeline">完整流水线（全功能）</option>
+          <option value="quick-analysis">快速分析（仅分析+提取）</option>
+          <option value="agent-pipeline">Agent 增强（AI 术语+翻译）</option>
+        </select>
+      </div>
       <div class="form-group">
         <label for="pipeline-top">提取术语数</label>
-        <input type="number" id="pipeline-top" value="20" min="5" max="100">
+        <input type="number" id="pipeline-top" value="30" min="5" max="100">
+      </div>
+      <div class="form-group" style="display:flex;align-items:flex-end">
+        <label class="toggle-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <span class="toggle-switch">
+            <input type="checkbox" id="pipeline-rag" style="opacity:0;width:0;height:0">
+            <span class="toggle-slider"></span>
+          </span>
+          RAG
+        </label>
       </div>
     </div>
-    <div class="form-row" style="align-items:center;margin-top:8px">
-      <label class="toggle-label" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle-switch">
-          <input type="checkbox" id="pipeline-rag" style="opacity:0;width:0;height:0">
-          <span class="toggle-slider"></span>
-        </span>
-        启用医疗 RAG（检索增强生成）
-      </label>
-      <span style="font-size:12px;color:var(--text-muted)">从内置医学语料库检索相关术语与上下文</span>
+
+    <button class="btn btn-primary ai-btn" id="pipeline-start-btn" onclick="startPipeline()">
+      ① 开始：分析与提取
+    </button>
+    <span id="pipeline-hitl-hint" style="font-size:11.5px;color:var(--text-dim);margin-left:10px">
+      提取后会停在「译员裁决」等你决定
+    </span>
+
+    <!-- 阶段条：把「哪里会停」画出来 -->
+    <div id="pipeline-stepper" style="display:none;flex-wrap:wrap;gap:6px;align-items:center;margin:16px 0 4px"></div>
+
+    <!-- 检查点面板 -->
+    <div id="pipeline-checkpoint" style="display:none;margin-top:16px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h4 style="margin:0">③ 译员裁决</h4>
+        <span class="hitl-session-label" style="font-size:11px;color:var(--text-dim)"></span>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.8">
+        逐条点「采纳 / 剔除 / 修正 / 合并」；也可补充系统漏掉的术语。
+        裁决完点下方按钮继续 ④→⑧。
+      </div>
+
+      <div class="form-row" style="margin-bottom:10px" data-term-form>
+        <div class="form-group">
+          <label>新增术语</label>
+          <input type="text" data-role="add-word" placeholder="译员补充的术语">
+        </div>
+        <div class="form-group">
+          <label>译文</label>
+          <input type="text" data-role="add-trans" placeholder="译文">
+        </div>
+        <div class="form-group">
+          <label>类型</label>
+          <input type="text" data-role="add-type" value="added">
+        </div>
+        <div class="form-group" style="display:flex;align-items:flex-end">
+          <button class="btn btn-sm btn-secondary" onclick="addTermRow(this)">＋ 添加</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>词性</th><th>翻译 / 释义</th><th>裁决</th></tr></thead>
+          <tbody id="hitl-table"></tbody>
+        </table>
+        <div class="decision-bar">
+          <span class="decision-summary" id="decision-summary-pipeline">尚未裁决</span>
+          <button class="btn btn-sm btn-secondary" onclick="exportDecisions()">⤓ 导出裁决记录 CSV</button>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="resumePipeline()">✓ 按我的裁决继续（④→⑧）</button>
+        <button class="btn btn-secondary" onclick="acceptAllAndResume()">全部采纳，直接继续</button>
+        <button class="btn btn-sm btn-secondary" onclick="resetCheckpoint()" style="margin-left:auto">放弃本次检查点</button>
+      </div>
+      <div id="pipeline-hitl-result" style="margin-top:16px"></div>
     </div>
-    <button class="btn btn-primary ai-btn" onclick="doPipeline()">运行流水线</button>
+
+    <!-- 全自动模式的结果区 -->
     <div class="progress-wrap" id="pipeline-progress">
       <div class="progress-track"><div class="progress-fill" id="pipeline-progress-fill"></div></div>
       <div class="progress-label">
@@ -1187,9 +1321,13 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
     </div>
     <div class="spinner" id="pipeline-spinner"><div class="spinner-dot"></div>运行中…</div>
     <div class="result-box" id="pipeline-result">
-      <h4>流水线结果</h4>
+      <h4 style="margin-bottom:8px">流水线结果</h4>
       <div id="pipeline-steps"></div>
       <div id="pipeline-summary" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></div>
+      <!-- 步骤错误此前被完全丢弃，导致「失败了也看不出」 -->
+      <div id="pipeline-errors" style="display:none;margin-top:8px;font-size:12px;line-height:1.7;color:var(--red);background:var(--red-soft);border-radius:8px;padding:8px 12px"></div>
+
+      <!-- Terms table -->
       <div id="pipeline-terms" style="margin-top:16px;display:none">
         <h4 style="margin-bottom:8px">提取术语</h4>
         <div class="table-wrap"><table>
@@ -1197,9 +1335,37 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
           <tbody id="pipeline-terms-table"></tbody>
         </table></div>
       </div>
+
+      <!-- 全文翻译（第 4 步）：后端一值返回该字段，前端此前从不渲染 -->
+      <div id="pipeline-translation" style="margin-top:16px;display:none">
+        <h4 style="margin-bottom:8px">全文翻译</h4>
+        <div id="pipeline-translation-meta" style="font-size:12px;color:var(--text-muted);margin-bottom:6px"></div>
+        <pre id="pipeline-translation-content" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:13px;line-height:1.85;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow-y:auto;margin:0"></pre>
+      </div>
+
+      <!-- Translation analysis -->
+      <div id="pipeline-analysis" style="margin-top:16px;display:none">
+        <h4 style="margin-bottom:8px">翻译难度分析</h4>
+        <div id="pipeline-analysis-diff" style="margin-bottom:8px"></div>
+        <div id="pipeline-analysis-flags" style="margin-bottom:8px"></div>
+        <div id="pipeline-analysis-recs"></div>
+      </div>
+
+      <!-- Report -->
       <div id="pipeline-report" style="margin-top:16px;display:none">
         <h4>译前准备报告 <button class="btn btn-sm btn-secondary" onclick="downloadReport()" style="float:right">下载报告</button></h4>
         <pre id="pipeline-report-content" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:12px;line-height:1.7;overflow-x:auto;white-space:pre-wrap;max-height:400px;overflow-y:auto;margin-top:8px"></pre>
+      </div>
+
+      <!-- 个案数据包：容器重建后本地数据会丢，导出的这份才是可复现的证据 -->
+      <div id="pipeline-case" style="margin-top:16px;display:none">
+        <h4 style="margin-bottom:8px">个案数据包（可复现）</h4>
+        <div id="pipeline-case-info" style="font-size:12px;color:var(--text-muted);margin-bottom:8px"></div>
+        <button class="btn btn-sm btn-primary" onclick="exportCaseBundle()">⤓ 导出个案数据包 (ZIP)</button>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:6px;line-height:1.7">
+          含：输入原文 + sha256 · 运行参数 · 重算术语 · 系统建议/译员裁决 · 术语库 · 翻译记忆。<br>
+          ⚠️ 容器重建会清空本地数据，请及时下载留存。
+        </div>
       </div>
     </div>
   </div>
@@ -1405,15 +1571,18 @@ function toast(msg) {
 }
 
 // ── API helper ──
-async function api(url, data) {
+async function api(url, data, admin) {
+  var headers = {'Content-Type': 'application/json'};
+  // §5.1 — write endpoints require the admin token
+  if (admin) Object.assign(headers, getAdminHeaders());
   const res = await fetch(url, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: headers,
     body: JSON.stringify(data),
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(err || `HTTP ${res.status}`);
+    throw new Error(adminErrorHint(res.status, err) || `HTTP ${res.status}`);
   }
   return res.json();
 }
@@ -1477,6 +1646,35 @@ function getAIHeaders() {
   } : {};
 }
 
+// ── Admin token (§5.1) — unlocks the write / upload endpoints ──
+// The token is only ever kept in sessionStorage for this tab; it is never sent
+// anywhere except the protected endpoints listed in the task book §5.1.
+function saveAdminToken() {
+  var el = document.getElementById('admin-token');
+  if (!el) return;
+  var v = (el.value || '').trim();
+  if (v) sessionStorage.setItem('termprep-admin-token', v);
+  else sessionStorage.removeItem('termprep-admin-token');
+}
+function getAdminHeaders() {
+  var t = '';
+  try { t = sessionStorage.getItem('termprep-admin-token') || ''; } catch (e) { t = ''; }
+  return t ? {'X-Admin-Token': t} : {};
+}
+function restoreAdminToken() {
+  var el = document.getElementById('admin-token');
+  if (!el) return;
+  try { el.value = sessionStorage.getItem('termprep-admin-token') || ''; } catch (e) {}
+}
+restoreAdminToken();
+
+// Surface a clear hint instead of a silent failure when a protected call is refused
+function adminErrorHint(status, body) {
+  if (status === 401) return '需要管理员令牌：请在「AI 配置」里填写令牌后重试';
+  if (status === 503) return '服务器未配置 TERMPREP_ADMIN_TOKEN，该功能已被安全锁定';
+  return body || ('HTTP ' + status);
+}
+
 async function apiWithAI(url, data) {
   var headers = {'Content-Type': 'application/json'};
   Object.assign(headers, getAIHeaders());
@@ -1510,12 +1708,11 @@ async function doAnalyze() {
 
     if (hasFile) {
       // Upload file → get translation with analysis built-in
-      console.log('[DEBUG] File upload mode, files:', fileInput.files.length, 'names:', Array.from(fileInput.files).map(f=>f.name));
       var upHeaders = {};
       Object.assign(upHeaders, getAIHeaders());
+      Object.assign(upHeaders, getAdminHeaders());  // §5.1 — upload is a protected endpoint
       var form = new FormData();
       var uploadFile = fileInput.files[0];
-      console.log('[DEBUG] Uploading file:', uploadFile.name, 'size:', uploadFile.size, 'type:', uploadFile.type);
       if (!uploadFile) {
         toast('请选择文件');
         spinner.classList.remove('show');
@@ -1529,22 +1726,23 @@ async function doAnalyze() {
       var ragEl = document.getElementById('trans-rag');
       if (ragEl) { useRag = ragEl.checked; }
       form.append('use_rag', useRag ? 'true' : 'false');
-      console.log('[DEBUG] Sending fetch to /api/translate/upload, use_rag=', useRag);
       var upRes;
       try {
         upRes = await fetch('/api/translate/upload', {method:'POST', headers: upHeaders, body:form});
       } catch (netErr) {
-        console.error('[DEBUG] Fetch failed:', netErr);
         throw new Error('网络请求失败: ' + (netErr.message || netErr));
       }
-      console.log('[DEBUG] Response status:', upRes.status, upRes.statusText);
       var responseText = await upRes.text();
-      console.log('[DEBUG] Raw response (first 500 chars):', responseText.substring(0, 500));
+      // §5.1 / §5.2 — surface auth (401/503) and validation (400/413) failures clearly
+      if (!upRes.ok) {
+        var hint;
+        try { hint = JSON.parse(responseText).detail; } catch (e) { hint = responseText.substring(0, 200); }
+        throw new Error(adminErrorHint(upRes.status, hint));
+      }
       var data;
-      try { data = JSON.parse(responseText); } catch (parseErr) { console.error('[DEBUG] JSON parse failed:', parseErr); throw new Error('服务器返回非 JSON: ' + responseText.substring(0, 200)); }
-      console.log('[DEBUG] Parsed data:', data);
+      try { data = JSON.parse(responseText); } catch (parseErr) { throw new Error('服务器返回非 JSON: ' + responseText.substring(0, 200)); }
       // 检查后端是否返回了错误信息（即使 HTTP 状态码是 200）
-      if (data.error) { console.error('[DEBUG] Server returned error:', data.error); throw new Error(data.error + (data.traceback ? '\n' + data.traceback : '')); }
+      if (data.error) { throw new Error(data.error + (data.traceback ? '\n' + data.traceback : '')); }
       if (data.glossary && data.glossary.terms && data.glossary.terms.length) {
         var glossaryTerms = data.glossary.terms;
         data.segments = data.segments.map(function(seg) {
@@ -1581,7 +1779,6 @@ async function doAnalyze() {
       transCard.scrollIntoView({behavior:'smooth'});
     }
   } catch(e) {
-    console.error('[DEBUG] doAnalyze error:', e);
     var errMsg = e && e.message ? e.message : String(e);
     toast('失败: ' + errMsg);
   } finally {
@@ -1600,7 +1797,7 @@ function showAnalysis(text) {
 function showAnalysisStats(adata) {
   var langNames = {en:'英语',zh:'中文',ja:'日语',ko:'韩语',fr:'法语',de:'德语',es:'西班牙语'};
   var diffNames = {easy:'简单',medium:'中等',hard:'困难'};
-  var domainNames = {general:'通用',legal:'法律',medical:'医学',finance:'金融',it:'信息技术',academic:'学术',news:'新闻'};
+  var domainNames = {general:'通用',legal:'法律',medical:'医学',finance:'金融',it:'信息技术',academic:'学术',translation:'翻译研究',humanities:'人文社科',news:'新闻'};
   var labels = {lang:'语言',char_count:'字符数',word_count:'词汇数',domain:'领域',difficulty:'难度'};
   var vals = {
     lang:(langNames[adata.lang]||adata.lang),
@@ -1618,7 +1815,7 @@ function showAnalysisStats(adata) {
 function formatAnalysis(d) {
   var langNames = {en:'\u82f1\u8bed', zh:'\u4e2d\u6587', ja:'\u65e5\u8bed', ko:'\u97e9\u8bed', fr:'\u6cd5\u8bed', de:'\u5fb7\u8bed', es:'\u897f\u73ed\u7259\u8bed'};
   var diffNames = {easy:'\u7b80\u5355', medium:'\u4e2d\u7b49', hard:'\u56f0\u96be'};
-  var domainNames = {general:'\u901a\u7528', legal:'\u6cd5\u5f8b', medical:'\u533b\u5b66', finance:'\u91d1\u878d', it:'\u4fe1\u606f\u6280\u672f', academic:'\u5b66\u672f', news:'\u65b0\u95fb'};
+  var domainNames = {general:'\u901a\u7528', legal:'\u6cd5\u5f8b', medical:'\u533b\u5b66', finance:'\u91d1\u878d', it:'\u4fe1\u606f\u6280\u672f', academic:'\u5b66\u672f', translation:'\u7ffb\u8bd1\u7814\u7a76', humanities:'\u4eba\u6587\u793e\u79d1', news:'\u65b0\u95fb'};
   var lang = langNames[d.lang] || d.lang;
   var diff = diffNames[d.difficulty] || d.difficulty;
   var dom = domainNames[d.domain] || d.domain;
@@ -1704,6 +1901,468 @@ function escRegex(s) {
 // ── Extract ──
 var _extractedWords = [];
 
+// ── 干预点标记 / 裁决记录（§5.4.1 数据落盘 + §5.11 item 3） ──
+// 每次「采纳 / 剔除 / 合并」都会写入服务端裁决日志，并可一键导出 CSV 直接作为论文附录。
+// 同一 (会话, 步骤, 术语) 只保留最终裁决，改变主意不会重复计数。
+var _decisionSession = (function () {
+  try {
+    var s = sessionStorage.getItem('termprep-decision-session');
+    if (!s) {
+      s = 'web-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+      sessionStorage.setItem('termprep-decision-session', s);
+    }
+    return s;
+  } catch (e) {
+    return 'web-' + Date.now().toString(36);
+  }
+})();
+var _decisionInputDigest = '';
+var _verdicts = {};
+
+// ── 检查点（Human-in-the-loop）状态 ──
+var _hitlSession = '';    // /api/pipeline/start 返回的 session_id
+var _hitlTerms = [];      // 候选术语（含 score/score_breakdown/pos/freq）
+var _hitlTopN = 30;
+var _addedRows = [];      // 译员新增的术语
+var _edits = {};          // word -> {word, translation}（修正后的值）
+var _merges = {};         // source word -> target word
+var _editingWord = '';    // 正在内联修正的行
+var _mergeSource = '';    // 合并模式下已选中的源行
+
+// HTML 属性转义：原实现把 JSON.stringify(word) 塞进双引号属性，
+// 双引号会提前截断 onclick，导致裁决按钮实际不可用。
+function escAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function decisionChips(idx, word) {
+  var cur = _verdicts[word] || '';
+  var mergeTgt = _merges[word] || '';
+  function chip(v, label, extraCls) {
+    var on = (cur === v) || (v === 'merged' && !!mergeTgt) ||
+             (v === 'merged' && _mergeSource === word);
+    return '<button class="verdict-chip' + (on ? ' on' + (extraCls || '') : '') + '" ' +
+      'data-v="' + v + '" data-idx="' + idx + '" data-word="' + escAttr(word) + '" ' +
+      'onclick="markVerdict(this)">' + label + '</button>';
+  }
+  var out = chip('accepted', '采纳') +
+            chip('rejected', '剔除', ' reject') +
+            chip('edited', '修正') +
+            chip('merged', _mergeSource === word ? '选目标…' : '合并');
+  if (mergeTgt) {
+    out += '<div style="font-size:10px;color:var(--text-dim);margin-top:3px">→ 并入 ' +
+           esc(mergeTgt) + '</div>';
+  }
+  if (_edits[word]) {
+    out += '<div style="font-size:10px;color:var(--accent);margin-top:3px">已修正</div>';
+  }
+  return out;
+}
+
+function findCandidate(word) {
+  for (var i = 0; i < (_hitlTerms || []).length; i++) {
+    if (_hitlTerms[i].word === word) return _hitlTerms[i];
+  }
+  for (var j = 0; j < _addedRows.length; j++) {
+    if (_addedRows[j].word === word) return _addedRows[j];
+  }
+  return null;
+}
+
+function countVerdict(v) {
+  var n = 0;
+  for (var k in _verdicts) { if (_verdicts[k] === v) n++; }
+  return n;
+}
+
+async function markVerdict(btn) {
+  var word = btn.dataset.word || '';
+  var verdict = btn.dataset.v || '';
+  if (!word) return;
+
+  if (verdict === 'edited') {
+    _editingWord = (_editingWord === word) ? '' : word;
+    renderHitlTable();
+    return;
+  }
+
+  if (verdict === 'merged') {
+    if (!_mergeSource) {
+      _mergeSource = word;
+      toast('合并模式：再点另一行的「合并」把它并入目标');
+    } else if (_mergeSource === word) {
+      _mergeSource = '';
+      toast('已取消合并');
+    } else {
+      var src = _mergeSource;
+      _merges[src] = word;
+      _verdicts[src] = 'accepted';
+      _mergeSource = '';
+      toast('已合并：' + src + ' → ' + word);
+      renderHitlTable();
+      await recordVerdict(src, 'merged');
+      return;
+    }
+    renderHitlTable();
+    return;
+  }
+
+  _verdicts[word] = verdict;
+  if (verdict === 'rejected') { delete _merges[word]; }
+  renderHitlTable();
+  await recordVerdict(word, verdict);
+}
+
+// 每次裁决都写进服务端裁决日志（附带完整原文与参数，便于个案数据包复现）
+async function recordVerdict(word, verdict) {
+  var t = findCandidate(word) || {};
+  var ed = _edits[word] || {};
+  var textEl = document.getElementById('extract-text');
+  try {
+    await api('/api/decisions/record', {
+      session_id: _hitlSession || _decisionSession,
+      step: 'extract',
+      input_digest: _decisionInputDigest,
+      input_text: textEl ? textEl.value : '',
+      parameters: { top_n: _hitlTopN, mode: 'hitl' },
+      items: [{
+        term: word,
+        system_suggestion: ed.translation || t.translation || t.type || '',
+        translator_verdict: verdict,
+        score: typeof t.score === 'number' ? t.score : null,
+        score_breakdown: t.score_breakdown || null,
+        note: (verdict === 'merged')
+          ? ('merge_into: ' + (_merges[word] || ''))
+          : (ed.word ? ('edited_word: ' + ed.word) : ''),
+        step: 'extract'
+      }]
+    });
+    refreshDecisionSummary();
+  } catch (e) {
+    toast('裁决记录失败: ' + e.message);
+  }
+}
+
+function saveEdit(word) {
+  var wEl = document.getElementById('edit-word');
+  var tEl = document.getElementById('edit-trans');
+  var w = wEl ? wEl.value.trim() : '';
+  var tr = tEl ? tEl.value.trim() : '';
+  if (!w) { toast('术语不能为空'); return; }
+  _edits[word] = { word: w, translation: tr };
+  _verdicts[word] = 'edited';
+  _editingWord = '';
+  renderHitlTable();
+  recordVerdict(word, 'edited');
+  toast('已修正：' + word + ' → ' + w);
+}
+
+function cancelEdit() {
+  _editingWord = '';
+  renderHitlTable();
+}
+
+function addTermRow(btn) {
+  // 用 data-role 在按钮所在的表单作用域内查找，避免两页重复 id 互相串台
+  var scope = (btn && btn.closest) ? (btn.closest('[data-term-form]') || document) : document;
+  var wEl = scope.querySelector('[data-role="add-word"]');
+  var tEl = scope.querySelector('[data-role="add-trans"]');
+  var yEl = scope.querySelector('[data-role="add-type"]');
+  var w = wEl ? wEl.value.trim() : '';
+  var tr = tEl ? tEl.value.trim() : '';
+  var ty = (yEl && yEl.value.trim()) || 'added';
+  if (!w) { toast('请输入术语'); return; }
+  _addedRows.push({ word: w, translation: tr, type: ty, freq: 1 });
+  if (wEl) wEl.value = '';
+  if (tEl) tEl.value = '';
+  renderHitlTable();
+  recordVerdict(w, 'added');
+  toast('已新增术语：' + w + (tr ? ' → ' + tr : ''));
+}
+
+function removeAdded(word) {
+  _addedRows = _addedRows.filter(function (a) { return a.word !== word; });
+  renderHitlTable();
+}
+
+function renderHitlTable() {
+  var html = (_hitlTerms || []).map(function (t, i) {
+    var w = t.word;
+    var bd = t.score_breakdown || {};
+    var why = '频次 ' + (bd.frequency != null ? bd.frequency : '-') +
+              ' · 词表命中 ' + (bd.domain_hit != null ? bd.domain_hit : '-') +
+              ' · 长度 ' + (bd.length != null ? bd.length : '-') +
+              ' · 形态 ' + (bd.form != null ? bd.form : '-');
+    var v = _verdicts[w] || '';
+    var ed = _edits[w];
+    var cell;
+    if (_editingWord === w) {
+      cell = '<input id="edit-word" type="text" value="' + escAttr(ed ? ed.word : w) + '"' +
+             ' style="width:120px;padding:2px 6px;font-size:12px;margin-right:4px" placeholder="术语">' +
+             '<input id="edit-trans" type="text" value="' + escAttr(ed ? ed.translation : '') + '"' +
+             ' style="width:120px;padding:2px 6px;font-size:12px;margin-right:4px" placeholder="译文">' +
+             '<button class="btn btn-sm btn-primary" data-word="' + escAttr(word_safe(w)) + '"' +
+             ' onclick="saveEdit(this.dataset.word)">保存</button> ' +
+             '<button class="btn btn-sm btn-secondary" onclick="cancelEdit()">取消</button>';
+    } else {
+      cell = decisionChips(i, w);
+    }
+    var shownWord = (v === 'edited' && ed) ? ed.word : w;
+    var shownTrans = (v === 'edited' && ed) ? ed.translation : (t.translation || '');
+    var trCls = 'table-row-in';
+    if (v === 'rejected') trCls += ' hitl-rejected';
+    if (_mergeSource === w) trCls += ' hitl-merge-src';
+    return '<tr class="' + trCls + '"><td>' + (i + 1) + '</td><td><strong>' +
+      esc(shownWord) + '</strong></td><td>' + t.freq + '</td><td>' + esc(t.type || '') + '</td>' +
+      '<td class="text-mono" title="' + escAttr(why) + '" style="cursor:help">' + t.score + '</td>' +
+      '<td style="font-size:12px;color:var(--text-muted)">' + esc(t.pos || '—') + '</td>' +
+      '<td>' + (shownTrans
+        ? '<span style="color:var(--green);font-size:12px">' + esc(shownTrans) + '</span>'
+        : '<span style="font-size:11px;color:var(--text-dim)">—</span>') + '</td>' +
+      '<td>' + cell + '</td></tr>';
+  }).join('');
+
+  html += _addedRows.map(function (a) {
+    return '<tr class="table-row-in hitl-added"><td style="color:var(--accent)">＋</td>' +
+      '<td><strong>' + esc(a.word) + '</strong></td><td>—</td><td>' + esc(a.type || 'added') + '</td>' +
+      '<td class="text-mono">—</td><td style="font-size:12px;color:var(--text-muted)">—</td>' +
+      '<td>' + (a.translation
+        ? '<span style="color:var(--green);font-size:12px">' + esc(a.translation) + '</span>'
+        : '<span style="font-size:11px;color:var(--text-dim)">—</span>') + '</td>' +
+      '<td><span style="font-size:11px;color:var(--accent)">译员新增</span> ' +
+      '<button class="btn btn-sm btn-secondary" data-word="' + escAttr(a.word) + '"' +
+      ' onclick="removeAdded(this.dataset.word)">移除</button></td></tr>';
+  }).join('');
+
+  // 同一份状态渲染到所有存在的裁决表（流水线页 hitl-table / 提取页 extract-table）
+  ['hitl-table', 'extract-table'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  });
+
+  var label = _hitlSession
+    ? ('会话 ' + _hitlSession + ' · 候选 ' + _hitlTerms.length + ' · 新增 ' + _addedRows.length +
+       ' · 采纳 ' + countVerdict('accepted') + ' / 剔除 ' + countVerdict('rejected') +
+       ' / 修正 ' + countVerdict('edited') + ' / 合并 ' + Object.keys(_merges).length)
+    : '尚未建立检查点会话 — 先点「① 开始：分析与提取」';
+  document.querySelectorAll('.hitl-session-label').forEach(function (el) {
+    el.textContent = label;
+  });
+  var summary = document.getElementById('decision-summary-pipeline');
+  if (summary) summary.textContent = label;
+  try {
+    if (_hitlSession) sessionStorage.setItem('termprep-hitl-session', _hitlSession);
+  } catch (e) {}
+}
+
+function word_safe(w) { return w; }
+
+// ── 词典搜索「采用 / 弃用」：采用的结果写入裁决日志，resume 时优先作为入库译文 ──
+var _searchTerm = '';
+var _searchResults = [];
+var _searchPicks = {};
+
+async function markSearchResult(btn) {
+  var i = parseInt(btn.dataset.i, 10);
+  var verdict = btn.dataset.v || '';
+  var r = (_searchResults || [])[i];
+  if (!r) return;
+  _searchPicks[i] = verdict;
+
+  var tbody = document.getElementById('search-table');
+  if (tbody) {
+    var rows = tbody.querySelectorAll('tr');
+    if (rows[i]) {
+      rows[i].querySelectorAll('.verdict-chip').forEach(function (c) {
+        var on = c.dataset.v === verdict;
+        c.classList.toggle('on', on);
+        c.classList.toggle('reject', on && verdict === 'rejected');
+      });
+    }
+  }
+
+  try {
+    await api('/api/decisions/record', {
+      session_id: _hitlSession || _decisionSession,
+      step: 'search',
+      input_digest: _searchTerm,
+      items: [{
+        term: _searchTerm,
+        system_suggestion: r.word || '',
+        translator_verdict: verdict,
+        score: typeof r.score === 'number' ? r.score : null,
+        note: 'source: ' + (r.source || '') +
+              (r.definition ? ' | def: ' + String(r.definition).slice(0, 60) : ''),
+        step: 'search'
+      }]
+    });
+    toast(verdict === 'accepted'
+      ? ('已采用「' + r.word + '」，resume 时优先用作该术语译文')
+      : ('已弃用「' + r.word + '」'));
+  } catch (e) {
+    toast('记录失败: ' + e.message);
+  }
+}
+
+function buildAdjudicationItems() {
+  var items = [];
+  (_hitlTerms || []).forEach(function (t) {
+    var w = t.word;
+    var v = _verdicts[w] || 'accepted';
+    var item = {
+      word: w, verdict: v, freq: t.freq, type: t.type,
+      score: typeof t.score === 'number' ? t.score : null,
+      score_breakdown: t.score_breakdown || null
+    };
+    if (_merges[w]) {
+      item.merge_into = _merges[w];
+      item.verdict = 'accepted';
+    } else if (v === 'edited' && _edits[w]) {
+      item.edited_word = _edits[w].word;
+      item.edited_translation = _edits[w].translation;
+    }
+    items.push(item);
+  });
+  (_addedRows || []).forEach(function (a) {
+    items.push({
+      word: a.word, verdict: 'added', type: a.type || 'added', freq: 1,
+      edited_translation: a.translation || ''
+    });
+  });
+  return items;
+}
+
+async function resumePipeline() {
+  if (!_hitlSession) { toast('请先点「提取术语（进入检查点）」'); return; }
+  var items = buildAdjudicationItems();
+  // 结果渲染到流水线页与提取页各自的容器（不要用重复 id）
+  var targets = ['pipeline-hitl-result', 'hitl-result']
+    .map(function (id) { return document.getElementById(id); })
+    .filter(Boolean);
+  var box = targets[0] || null;
+  if (!box) { toast('未找到结果容器'); return; }
+  targets.forEach(function (t) {
+    t.style.display = 'block';
+    t.innerHTML = '<div class="spinner show" style="margin:8px 0">' +
+      '<div class="spinner-dot"></div>正在按裁决继续流水线（术语表 → 全文翻译 → 术语库 → 报告 → 导出）…</div>';
+  });
+  try {
+    var data = await apiWithAI('/api/pipeline/' + encodeURIComponent(_hitlSession) + '/resume', {
+      terms: items,
+      project_name: 'adjudicated',
+      top_n: _hitlTopN || 30,
+      translate_mode: 'auto',
+      use_ai: _aiConfig.enabled,
+      engine: _aiConfig.enabled ? 'ai' : null,
+      export_formats: ['csv', 'json']
+    });
+    renderHitlResume(data, targets);
+    renderStepperFromResume(data);
+    var panel = document.getElementById('pipeline-checkpoint');
+    if (panel) panel.style.display = 'block';
+    if (window.petPulse) window.petPulse();
+  } catch (e) {
+    var msg = e.message || String(e);
+    if (/session not found|已过期|404/.test(msg)) {
+      msg = '检查点会话已过期（TTL 1 小时）。请重新点「① 开始：分析与提取」再继续。';
+      resetCheckpoint();
+    }
+    targets.forEach(function (t) {
+      t.innerHTML = '<div style="color:var(--red);font-size:13px;line-height:1.8">继续失败：' +
+        esc(msg) + '</div>';
+    });
+  }
+}
+
+function renderHitlResume(data, targets) {
+  targets = Array.isArray(targets) ? targets : [targets];
+  var steps = data.step_status || [];
+  var stepHtml = steps.map(function (s, i) {
+    var color = s.status === 'ok' ? 'var(--green)' : (s.status === 'failed' ? 'var(--red)' : 'var(--text-dim)');
+    var mark = s.status === 'ok' ? '✓' : (s.status === 'failed' ? '✗' : '–');
+    return '<div style="font-size:12px;line-height:1.9">' + String(i + 1).padStart(2, '0') + '. ' +
+      esc(s.label || s.name) + ' <span style="color:' + color + ';font-weight:700">' + mark + '</span>' +
+      (s.detail ? ' <span style="color:var(--text-muted)">' + esc(s.detail) + '</span>' : '') + '</div>';
+  }).join('');
+
+  var adj = data.adjudication || {};
+  var head = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">' +
+    '裁决：剔除 ' + ((adj.rejected || []).length) + ' · 合并 ' + ((adj.merged || []).length) +
+    ' · 保留 ' + (adj.kept || 0) + ' · 未译 ' + (adj.untranslated || 0) +
+    ' → 入库 ' + (data.termbase_terms || 0) + ' 条（术语库 ' + esc(data.termbase_name || '') + '）</div>';
+
+  var trans = (data.full_translation && data.full_translation.trim())
+    ? '<h4 style="margin-top:14px;margin-bottom:6px">全文翻译</h4>' +
+      '<pre style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;' +
+      'font-size:12.5px;line-height:1.8;white-space:pre-wrap;word-break:break-word;max-height:320px;' +
+      'overflow-y:auto;margin:0">' + esc(data.full_translation) + '</pre>'
+    : '<div style="margin-top:12px;font-size:12px;color:var(--red)">全文翻译未产出（见上方步骤状态）</div>';
+
+  var gl = (data.glossary || []).map(function (g) {
+    var tag = (g.verdict && g.verdict !== 'accepted')
+      ? ' <span style="font-size:10px;color:var(--accent)">[' + esc(g.verdict) + ']</span>' : '';
+    var mf = (g.merged_from && g.merged_from.length)
+      ? ' <span style="font-size:10px;color:var(--text-dim)">← ' + esc(g.merged_from.join(', ')) + '</span>' : '';
+    return '<div style="font-size:12px;line-height:1.9">' + esc(g.term) +
+      ' → <span style="color:var(--green)">' + esc(g.translation) + '</span>' + tag + mf + '</div>';
+  }).join('');
+
+  var errs = (data.errors || []).length
+    ? '<div style="margin-top:10px;font-size:12px;color:var(--red);line-height:1.7">⚠ ' +
+      esc(data.errors.join(' ｜ ')) + '</div>' : '';
+  var expKeys = Object.keys(data.exports || {});
+  var exp = expKeys.length
+    ? '<div style="margin-top:8px;font-size:11px;color:var(--text-dim)">已导出：' + esc(expKeys.join(', ')) + '</div>' : '';
+  var cs = data.case || {};
+  var caseHtml = cs.download_url
+    ? '<div style="margin-top:10px"><button class="btn btn-sm btn-secondary" data-url="' +
+      escAttr(cs.download_url) + '" onclick="window.location.href=this.dataset.url">' +
+      '⤓ 导出个案数据包 (ZIP)</button></div>' : '';
+
+  var html = '<div class="result-box"><h4>裁决后流水线结果</h4>' + head +
+    '<div style="margin-top:8px">' + stepHtml + '</div>' +
+    trans +
+    '<h4 style="margin-top:14px;margin-bottom:6px">术语表（入库值）</h4>' + gl +
+    errs + exp + caseHtml + '</div>';
+  targets.forEach(function (t) {
+    if (t) { t.style.display = 'block'; t.innerHTML = html; }
+  });
+}
+
+async function refreshDecisionSummary() {
+  var el = document.getElementById('decision-summary');
+  if (!el) return;
+  try {
+    var s = await apiGet('/api/decisions/summary?session_id=' + encodeURIComponent(_decisionSession));
+    if (!s.total_records) {
+      el.textContent = '本次会话尚未记录裁决——点击右侧按钮标记「采纳 / 剔除 / 合并」';
+      return;
+    }
+    el.textContent = '本次会话：系统建议 ' + (s.system_suggested || 0) +
+      ' · 采纳 ' + (s.translator_accepted || 0) +
+      ' · 剔除 ' + (s.translator_rejected || 0) +
+      ' · 补充 ' + (s.translator_added || 0) +
+      ' · 合并 ' + (s.translator_merged || 0) +
+      ' → 最终保留 ' + (s.final_kept || 0) + ' 项';
+  } catch (e) { /* 摘要失败不影响主流程 */ }
+}
+
+function exportDecisions() {
+  window.location.href = '/api/decisions/export?session_id=' +
+    encodeURIComponent(_decisionSession) + '&format=csv';
+}
+
+// ── 个案数据包导出（§5.4.1 可复现）──
+var _pipelineCaseSession = '';
+
+function exportCaseBundle() {
+  if (!_pipelineCaseSession) { toast('请先运行一次流水线'); return; }
+  window.location.href = '/api/cases/bundle?session_id=' +
+    encodeURIComponent(_pipelineCaseSession) + '&format=zip';
+}
+
 async function doExtract() {
   loadAISettings();
   const text = document.getElementById('extract-text').value.trim();
@@ -1713,33 +2372,33 @@ async function doExtract() {
   const result = document.getElementById('extract-result');
   spinner.classList.add('show');
   result.classList.remove('show');
+  document.getElementById('hitl-result').style.display = 'none';
   if (window.petSetThinking) window.petSetThinking(true);
   try {
-    let terms = [];
-    if (_aiConfig.enabled && _aiConfig.apiKey) {
-      const termData = await apiWithAI('/api/agents/term', {text, project_name: 'browser', top_n: top});
-      const glossaryTerms = ((termData.glossary || {}).terms || []);
-      terms = glossaryTerms.map((t, i) => ({
-        word: t.source_term,
-        freq: t.frequency || 1,
-        type: t.term_type || 'ai',
-        score: t.score || 0,
-        translation: t.target_translation || ''
-      }));
+    // 检查点 1/2：analyze + extract，返回 session_id 供「确认并继续」调用 resume
+    const data = await apiWithAI('/api/pipeline/start', {
+      text: text, project_name: 'browser', top_n: top
+    });
+    _hitlSession = data.session_id || '';
+    _hitlTerms = data.terms || [];
+    _hitlTopN = top;
+    _extractedWords = _hitlTerms;
+    _decisionInputDigest = (text || '').slice(0, 80);
+    _verdicts = {}; _edits = {}; _merges = {}; _addedRows = [];
+    _editingWord = ''; _mergeSource = '';
+    renderHitlTable();
+    renderStepper({ 0: 'ok', 1: 'ok', 2: 'current' });
+
+    var notes = [];
+    if (data.verification && data.verification.used) {
+      notes.push('P4 AI 复核剔除 ' + (data.verification.dropped || 0) + ' 项');
     }
-    if (!terms.length) {
-      const data = await api('/api/extract', {text, top_n: top});
-      terms = data.terms;
+    if ((data.rejected || []).length) {
+      notes.push('AI 判定非术语: ' + data.rejected.map(function (x) { return x.word; }).join(', '));
     }
-    _extractedWords = terms;
-    const tbody = document.getElementById('extract-table');
-    tbody.innerHTML = terms.map((t, i) =>
-      '<tr class=\"table-row-in\"><td>'+(i+1)+'</td><td><strong>'+esc(t.word)+'</strong></td><td>'+t.freq+'</td><td>'+esc(t.type)+'</td><td class=\"text-mono\">'+t.score+'</td><td id=\"trans-'+i+'\">'+
-      (t.translation
-        ? '<span style=\"color:var(--green);font-size:12px;line-height:1.5\">'+esc(t.translation)+'</span>'
-        : '<button class=\"btn btn-sm btn-secondary\" data-idx=\"'+i+'\" data-word=\"'+esc(t.word)+'\" onclick=\"translateTerm(this)\">\u7ffb\u8bd1</button>')+
-      '</td></tr>'
-    ).join('');
+    if (notes.length) toast('检查点已建立 · ' + notes.join(' · '));
+
+    refreshDecisionSummary();
     document.getElementById('trans-all-btn').style.display = 'inline-flex';
     result.classList.add('show');
   } catch(e) {
@@ -2090,13 +2749,29 @@ async function doSearch() {
   try {
     loadAISettings();
     const data = await apiWithAI('/api/search', {term, limit});
+    _searchTerm = term;
+    _searchResults = data.results || [];
     const tbody = document.getElementById('search-table');
     if (!data.results || data.results.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">未找到结果</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">未找到结果</td></tr>';
     } else {
-      tbody.innerHTML = data.results.map(r => {
-        var def = r.definition || (data.ai_used && r.word ? 'AI 翻译' : '');
-        return '<tr><td><strong>' + esc(r.word||'') + '</strong></td><td>' + esc(r.type||'') + '</td><td>' + esc(def) + '</td><td>' + esc(r.source||'') + '</td><td>' + (typeof r.score === 'number' ? r.score.toFixed(2) : r.score) + '</td></tr>';
+      tbody.innerHTML = data.results.map((r, i) => {
+        var def = r.definition || (r.definition_missing ? '（该源未提供释义）' : '');
+        // §5.5 — 多源印证：同一条目被 2 个以上来源同时命中（论文「协同校验」的微观演示）
+        var corroborated = (r.also_from && r.also_from.length)
+          ? ' <span style="font-size:10px;color:var(--green);background:var(--green-soft);padding:1px 5px;border-radius:4px;white-space:nowrap">✓ ' + esc(r.also_from.join('+')) + ' 印证</span>'
+          : '';
+        // 采用/弃用：采用的结果会写入裁决日志，resume 时优先用作入库译文
+        var picked = _searchPicks[i] || '';
+        var actions =
+          '<button class="verdict-chip' + (picked === 'accepted' ? ' on' : '') +
+            '" data-i="' + i + '" data-v="accepted" onclick="markSearchResult(this)">采用</button>' +
+          '<button class="verdict-chip' + (picked === 'rejected' ? ' on reject' : '') +
+            '" data-i="' + i + '" data-v="rejected" onclick="markSearchResult(this)">弃用</button>';
+        return '<tr><td><strong>' + esc(r.word || '') + '</strong>' + corroborated + '</td><td>' +
+          esc(r.type || '') + '</td><td>' + esc(def) + '</td><td>' + esc(r.source || '') +
+          '</td><td>' + (typeof r.score === 'number' ? r.score.toFixed(2) : r.score) + '</td><td>' +
+          actions + '</td></tr>';
       }).join('');
     }
     result.classList.add('show');
@@ -2143,15 +2818,178 @@ async function doSearch() {
   if (window.petSetThinking) window.petSetThinking(false);
 }
 
-// ── Pipeline ──
+// ── Pipeline v2 ──
 var _pipelineReport = '';
+
+function renderTranslationAnalysis(ta) {
+  if (!ta) return;
+  const diffEl = document.getElementById('pipeline-analysis-diff');
+  const flagsEl = document.getElementById('pipeline-analysis-flags');
+  const recsEl = document.getElementById('pipeline-analysis-recs');
+
+  const diffLabels = {easy:'\ud83d\udfe2 \u7b80\u5355', medium:'\ud83d\udfe1 \u4e2d\u7b49', hard:'\ud83d\udd34 \u56f0\u96be'};
+  diffEl.innerHTML = '<div style="display:flex;gap:12px;align-items:center">' +
+    '<span style="font-weight:600">\u6574\u4f53\u96be\u5ea6: ' + (diffLabels[ta.overall_difficulty] || ta.overall_difficulty) + '</span>' +
+    '<span style="color:var(--text-muted)">\u5206\u6790 ' + (ta.total_segments||0) + ' \u6bb5</span>' +
+    '</div>';
+
+  if (ta.overall_flags && ta.overall_flags.length) {
+    const flagLabels = {
+      long_sentence:'\u957f\u53e5', legal:'\u6cd5\u5f8b\u672f\u8bed', idiom:'\u4e60\u8bed',
+      ambiguous:'\u591a\u4e49\u8bcd', jargon:'\u884c\u8bdd', cn_four_char_idiom:'\u4e2d\u6587\u6210\u8bed',
+      parenthetical:'\u62ec\u53f7\u6ce8\u91ca', measurement_unit:'\u5ea6\u91cf\u5355\u4f4d'
+    };
+    flagsEl.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">' +
+      ta.overall_flags.map(f => '<span class="stat-badge" style="background:var(--amber-soft);color:var(--amber);padding:2px 8px;border-radius:4px;font-size:11px">\u26a0\ufe0f' + (flagLabels[f]||f) + '</span>').join('') +
+      '</div>';
+  }
+
+  if (ta.recommendations && ta.recommendations.length) {
+    recsEl.innerHTML = '<div style="margin-top:8px;font-size:13px">' +
+      ta.recommendations.map(r =>
+        '<div style="padding:6px 0;border-bottom:1px solid var(--border)"><strong>' + esc(r.type || '') + '</strong>: ' + esc(r.recommendation || '') + '</div>'
+      ).join('') +
+      '</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  流水线页：模式切换 · 阶段条 · 检查点
+// ═══════════════════════════════════════════════════════════════
+var _pipelineMode = 'hitl';
+var PIPELINE_STAGES = ['① 分析', '② 提取', '③ 译员裁决', '④ 术语表', '⑤ 全文翻译', '⑥ 术语库', '⑦ 报告', '⑧ 导出'];
+
+function setPipelineMode(mode) {
+  _pipelineMode = (mode === 'auto') ? 'auto' : 'hitl';
+  var hb = document.getElementById('mode-hitl'), ab = document.getElementById('mode-auto');
+  if (hb) hb.classList.toggle('on', _pipelineMode === 'hitl');
+  if (ab) ab.classList.toggle('on', _pipelineMode === 'auto');
+  var btn = document.getElementById('pipeline-start-btn');
+  if (btn) btn.textContent = (_pipelineMode === 'hitl') ? '① 开始：分析与提取' : '▶ 运行全自动流水线';
+  var hint = document.getElementById('pipeline-hitl-hint');
+  if (hint) hint.textContent = (_pipelineMode === 'hitl')
+    ? '提取后会停在「译员裁决」等你决定' : '一键跑到底，中途不可干预';
+  var tpl = document.getElementById('pipeline-template-wrap');
+  if (tpl) tpl.style.display = (_pipelineMode === 'auto') ? '' : 'none';
+  var cp = document.getElementById('pipeline-checkpoint');
+  if (cp) cp.style.display = (_pipelineMode === 'hitl' && _hitlSession) ? 'block' : 'none';
+}
+
+function renderStepper(map) {
+  var el = document.getElementById('pipeline-stepper');
+  if (!el) return;
+  el.style.display = 'flex';
+  el.innerHTML = PIPELINE_STAGES.map(function (name, i) {
+    var st = (map && map[i]) || 'pending';
+    var bg = st === 'ok' ? 'var(--green-soft)' : st === 'current' ? 'var(--accent-soft)' : (st === 'failed' ? 'var(--red-soft)' : 'var(--bg)');
+    var fg = st === 'ok' ? 'var(--green)' : st === 'current' ? 'var(--accent)' : (st === 'failed' ? 'var(--red)' : 'var(--text-dim)');
+    var bd = st === 'current' ? '2px solid var(--accent)' : '1px solid var(--border)';
+    var icon = st === 'ok' ? '✓' : st === 'current' ? '⏸' : (st === 'failed' ? '✗' : '·');
+    return '<span style="font-size:11.5px;padding:5px 11px;border-radius:20px;background:' + bg +
+      ';color:' + fg + ';border:' + bd + ';white-space:nowrap">' + icon + ' ' + name + '</span>';
+  }).join('');
+}
+
+var _RESUME_STAGE = { glossary: 3, full_translate: 4, termbase: 5, report: 6, export: 7 };
+
+function renderStepperFromResume(data) {
+  var map = { 0: 'ok', 1: 'ok', 2: 'ok' };
+  (data.step_status || []).forEach(function (s) {
+    var i = _RESUME_STAGE[s.name];
+    if (i === undefined) return;
+    map[i] = s.status === 'ok' ? 'ok' : (s.status === 'failed' ? 'failed' : 'skipped');
+  });
+  renderStepper(map);
+}
+
+async function startPipeline() {
+  if (_pipelineMode === 'auto') { doPipeline(); return; }
+  loadAISettings();
+  var textEl = document.getElementById('pipeline-text');
+  var text = textEl ? (textEl.value || '').trim() : '';
+  if (!text) { toast('请粘贴源文本'); return; }
+  var top = parseInt(document.getElementById('pipeline-top').value) || 30;
+  var name = document.getElementById('pipeline-name').value || 'MyProject';
+  var spinner = document.getElementById('pipeline-spinner');
+  var result = document.getElementById('pipeline-result');
+  if (result) result.classList.remove('show');
+  spinner.classList.add('show');
+  if (window.petSetThinking) window.petSetThinking(true);
+  try {
+    var data = await apiWithAI('/api/pipeline/start', {
+      text: text, project_name: name, top_n: top
+    });
+    _hitlSession = data.session_id || '';
+    _hitlTerms = data.terms || [];
+    _hitlTopN = top;
+    _extractedWords = _hitlTerms;
+    _decisionInputDigest = text.slice(0, 80);
+    _verdicts = {}; _edits = {}; _merges = {}; _addedRows = [];
+    _editingWord = ''; _mergeSource = '';
+    renderHitlTable();
+    renderStepper({ 0: 'ok', 1: 'ok', 2: 'current' });
+    var panel = document.getElementById('pipeline-checkpoint');
+    if (panel) {
+      panel.style.display = 'block';
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    toast('② 提取完成：' + _hitlTerms.length + ' 项候选 —— 已停在第 ③ 步，请裁决');
+  } catch (e) {
+    toast('提取失败: ' + e.message);
+  } finally {
+    spinner.classList.remove('show');
+    if (window.petSetThinking) window.petSetThinking(false);
+  }
+}
+
+async function acceptAllAndResume() {
+  if (!_hitlSession) { toast('请先点「① 开始：分析与提取」'); return; }
+  _verdicts = {}; _edits = {}; _merges = {}; _editingWord = ''; _mergeSource = '';
+  (_hitlTerms || []).forEach(function (t) { _verdicts[t.word] = 'accepted'; });
+  renderHitlTable();
+  await resumePipeline();
+}
+
+function resetCheckpoint() {
+  _hitlSession = ''; _hitlTerms = []; _verdicts = {}; _edits = {}; _merges = {};
+  _addedRows = []; _editingWord = ''; _mergeSource = '';
+  try { sessionStorage.removeItem('termprep-hitl-session'); } catch (e) {}
+  var cp = document.getElementById('pipeline-checkpoint');
+  if (cp) cp.style.display = 'none';
+  var res = document.getElementById('hitl-result');
+  if (res) res.innerHTML = '';
+  var stepper = document.getElementById('pipeline-stepper');
+  if (stepper) stepper.style.display = 'none';
+  toast('已放弃本次检查点');
+}
+
+// 页面刷新后恢复上次检查点：会话存在服务端 SQLite，多 worker 也看得到
+(function restoreCheckpoint() {
+  var sid = '';
+  try { sid = sessionStorage.getItem('termprep-hitl-session') || ''; } catch (e) { return; }
+  if (!sid) return;
+  apiGet('/api/pipeline/' + encodeURIComponent(sid)).then(function (s) {
+    _hitlSession = sid;
+    _hitlTerms = s.terms || [];
+    _hitlTopN = (s.params && s.params.top_n) || 30;
+    _verdicts = {}; _edits = {}; _merges = {}; _addedRows = [];
+    renderHitlTable();
+    renderStepper({ 0: 'ok', 1: 'ok', 2: 'current' });
+    var panel = document.getElementById('pipeline-checkpoint');
+    if (panel) panel.style.display = 'block';
+    toast('已恢复上次的检查点（' + _hitlTerms.length + ' 项候选待裁决）');
+  }).catch(function () {
+    try { sessionStorage.removeItem('termprep-hitl-session'); } catch (e2) {}
+  });
+})();
 
 async function doPipeline() {
   loadAISettings();
   const text = document.getElementById('pipeline-text').value.trim();
   if (!text) { toast('\u8bf7\u8f93\u5165\u6587\u672c'); return; }
   const name = document.getElementById('pipeline-name').value || 'MyProject';
-  const top = parseInt(document.getElementById('pipeline-top').value) || 20;
+  const top = parseInt(document.getElementById('pipeline-top').value) || 30;
+  const template = document.getElementById('pipeline-template').value;
   const spinner = document.getElementById('pipeline-spinner');
   const result = document.getElementById('pipeline-result');
   const progressWrap = document.getElementById('pipeline-progress');
@@ -2163,14 +3001,21 @@ async function doPipeline() {
   progressWrap.classList.add('show');
   result.classList.remove('show');
   document.getElementById('pipeline-terms').style.display = 'none';
+  document.getElementById('pipeline-translation').style.display = 'none';
+  document.getElementById('pipeline-errors').style.display = 'none';
+  document.getElementById('pipeline-analysis').style.display = 'none';
   document.getElementById('pipeline-report').style.display = 'none';
+  document.getElementById('pipeline-case').style.display = 'none';
   if (window.petSetThinking) window.petSetThinking(true);
 
-  const steps = [
-    '\u5206\u6790\u6587\u672c\u2026', '\u63d0\u53d6\u672f\u8bed\u2026',
-    '\u641c\u7d22\u5173\u8054\u8bcd\u6c47\u2026', '\u5efa\u7acb\u672f\u8bed\u5e93\u2026',
-    '\u751f\u6210\u62a5\u544a\u2026', '\u5bfc\u51fa\u5b8c\u6210\u2026'
-  ];
+  // Dynamically build steps display based on template
+  const stepsByTemplate = {
+    'quick-analysis': ['\u5206\u6790\u6587\u672c', '\u63d0\u53d6\u672f\u8bed'],
+    'full-pipeline': ['\u5206\u6790\u6587\u672c', '\u63d0\u53d6\u672f\u8bed', '\u7ffb\u8bd1\u672f\u8bed', '\u5168\u6587\u7ffb\u8bd1', '\u96be\u5ea6\u5206\u6790', '\u751f\u6210\u62a5\u544a'],
+    'agent-pipeline': ['\u5206\u6790\u6587\u672c', 'AI \u63d0\u53d6\u672f\u8bed', 'AI \u7ffb\u8bd1\u672f\u8bed', 'AI \u5168\u6587\u7ffb\u8bd1', '\u96be\u5ea6\u5206\u6790', '\u751f\u6210\u62a5\u544a']
+  };
+  const steps = stepsByTemplate[template] || stepsByTemplate['full-pipeline'];
+
   document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
     `<div class="pstep pending"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
   ).join('');
@@ -2186,26 +3031,73 @@ async function doPipeline() {
 
   try {
     const useRag = document.getElementById('pipeline-rag').checked;
-    const data = await apiWithAI('/api/pipeline', {
+    const data = await apiWithAI('/api/pipeline/v2', {
       text, project_name: name, top_n: top,
+      template: template,
       use_ai: _aiConfig.enabled, ai_engine: _aiConfig.enabled ? 'ai' : null,
-      use_rag: useRag
+      use_rag: useRag,
+      stream: true
     });
     clearInterval(stepInterval);
     progressFill.style.width = '100%';
-    progressStep.textContent = '完成';
+    progressStep.textContent = '\u5b8c\u6210';
     progressPct.textContent = '100%';
 
-    document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
-      `<div class="pstep done"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
-    ).join('');
+    // 渲染「真实」步骤状态：后端返回 ok / skipped / failed 与原因。
+    // 此前这里只有一个 1.2 秒定时器，无论成功失败都显示全部打勾。
+    if (data.step_status && data.step_status.length) {
+      document.getElementById('pipeline-steps').innerHTML = data.step_status.map(function(s, i){
+        var color = s.status === 'ok' ? 'var(--green)' : (s.status === 'failed' ? 'var(--red)' : 'var(--text-dim)');
+        var mark = s.status === 'ok' ? '\u2713' : (s.status === 'failed' ? '\u2717' : '\u2013');
+        var detail = s.detail
+          ? ' <span style="font-size:11px;font-weight:400;color:var(--text-muted)">' + esc(s.detail) + '</span>'
+          : '';
+        return '<div class="pstep ' + (s.status === 'ok' ? 'done' : 'pending') + '">' +
+          '<div class="num">' + String(i+1).padStart(2,'0') + '</div>' +
+          esc(s.label || s.name) +
+          ' <span style="color:' + color + ';font-weight:700">' + mark + '</span>' + detail + '</div>';
+      }).join('');
+    } else {
+      document.getElementById('pipeline-steps').innerHTML = steps.map((s, i) =>
+        `<div class="pstep done"><div class="num">${String(i+1).padStart(2,'0')}</div>${s}</div>`
+      ).join('');
+    }
 
     const lines = [];
-    if (data.lang) lines.push(`\u8bed\u8a00: ${data.lang}`);
-    if (data.domain) lines.push(`\u9886\u57df: ${data.domain}`);
-    if (data.terms_count !== undefined) lines.push(`\u63d0\u53d6\u672f\u8bed: ${data.terms_count}`);
-    if (data.duration) lines.push(`\u8017\u65f6: ${data.duration}s`);
+    if (data.lang) lines.push('\u8bed\u8a00: ' + data.lang);
+    if (data.domain) lines.push('\u9886\u57df: ' + data.domain);
+    if (data.terms_count !== undefined) lines.push('\u63d0\u53d6\u672f\u8bed: ' + data.terms_count);
+    if (data.glossary_total !== undefined) {
+      lines.push('\u672f\u8bed\u8868: ' + (data.glossary_total - (data.glossary_untranslated || 0)) + '/' + data.glossary_total + ' \u5df2\u8bd1');
+    }
+    if (data.duration) lines.push('\u8017\u65f6: ' + data.duration + 's');
     document.getElementById('pipeline-summary').textContent = lines.join(' | ') || '\u6d41\u6c34\u7ebf\u5b8c\u6210';
+
+    // 错误此前被完全丢弃
+    const errEl = document.getElementById('pipeline-errors');
+    if (data.errors && data.errors.length) {
+      errEl.textContent = '\u26a0 ' + data.errors.join('  \uff5c  ');
+      errEl.style.display = 'block';
+    }
+
+    // 全文翻译（第 4 步）—— 后端一直有返回，前端此前直接丢弃
+    const transWrap = document.getElementById('pipeline-translation');
+    const transContent = document.getElementById('pipeline-translation-content');
+    if (data.full_translation && data.full_translation.trim()) {
+      transContent.textContent = data.full_translation;
+      transContent.style.color = '';
+      const meta = [];
+      if (data.translate_mode) meta.push('\u6a21\u5f0f: ' + data.translate_mode);
+      if (data.segments && data.segments.length) meta.push(data.segments.length + ' \u6bb5');
+      meta.push(data.full_translation.length + ' \u5b57\u7b26');
+      if (data.ai_used) meta.push('AI \u589e\u5f3a');
+      document.getElementById('pipeline-translation-meta').textContent = meta.join('  |  ');
+    } else {
+      transContent.textContent = '\uff08\u672c\u6b65\u672a\u4ea7\u51fa\u8bd1\u6587\uff09\u2014\u2014 \u8bf7\u770b\u4e0a\u65b9\u6b65\u9aa4\u72b6\u6001\u4e0e\u9519\u8bef\u4fe1\u606f\u3002\u5e38\u89c1\u539f\u56e0\uff1aAI Key \u672a\u914d\u7f6e\u3001\u8d85\u65f6\u3001\u88ab\u9650\u6d41\uff0c\u6216\u514d\u8d39\u7ffb\u8bd1\u5f15\u64ce\u4e0d\u53ef\u8fbe\u3002';
+      transContent.style.color = 'var(--red)';
+      document.getElementById('pipeline-translation-meta').textContent = '';
+    }
+    transWrap.style.display = 'block';
 
     // Terms table
     if (data.terms && data.terms.length) {
@@ -2215,17 +3107,35 @@ async function doPipeline() {
       document.getElementById('pipeline-terms').style.display = 'block';
     }
 
+    // Translation analysis
+    if (data.translation_analysis) {
+      renderTranslationAnalysis(data.translation_analysis);
+      document.getElementById('pipeline-analysis').style.display = 'block';
+    }
+
     // Report
     if (data.report) {
       _pipelineReport = data.report;
-      document.getElementById('pipeline-report-content').textContent = data.report.substring(0, 5000);
+      document.getElementById('pipeline-report-content').textContent = data.report.substring(0, 8000);
       document.getElementById('pipeline-report').style.display = 'block';
+    }
+
+    // §5.4.1 — 个案数据包（可复现）：每次流水线运行都会自动落一份快照
+    const caseInfo = data.case || {};
+    if (caseInfo.session_id) {
+      _pipelineCaseSession = caseInfo.session_id;
+      const box = document.getElementById('pipeline-case-info');
+      box.textContent = caseInfo.auto_saved
+        ? '已自动保存快照：' + (caseInfo.snapshot || '') + '（会话 ' + caseInfo.session_id.slice(0, 8) + '）'
+        : '未能自动保存：' + (caseInfo.error || '未知原因');
+      box.style.color = caseInfo.auto_saved ? 'var(--text-muted)' : 'var(--red)';
+      document.getElementById('pipeline-case').style.display = 'block';
     }
 
     result.classList.add('show');
   } catch(e) {
     clearInterval(stepInterval);
-    progressStep.textContent = '失败';
+    progressStep.textContent = '\u5931\u8d25';
     document.getElementById('pipeline-steps').innerHTML =
       '<div style="color:var(--red);font-size:13px">\u6d41\u6c34\u7ebf\u5931\u8d25: '+esc(e.message)+'</div>';
     result.classList.add('show');
@@ -2303,7 +3213,7 @@ async function doDbAdd() {
       type_: document.getElementById('db-add-type').value.trim(),
       domain: document.getElementById('db-add-domain').value.trim(),
       status: 'draft',
-    });
+    }, true);  // §5.1 — protected endpoint
     document.getElementById('db-add-result').innerHTML =
       `<span style="color:var(--green);font-size:13px">\u2713 \u5df2\u6dfb\u52a0\u672f\u8bed [id=${data.id}]: ${esc(word)}</span>`;
     document.getElementById('db-add-result').classList.add('show');
@@ -2361,7 +3271,9 @@ document.querySelector('[data-page="db"]').addEventListener('click', () => {
       });
     }
   }
+  var starRunning = true;
   function drawStars() {
+    if (!starRunning) return;
     ctx.clearRect(0, 0, width, height);
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
@@ -2377,15 +3289,32 @@ document.querySelector('[data-page="db"]').addEventListener('click', () => {
     requestAnimationFrame(drawStars);
   }
   resizeCanvas(); initStars(); drawStars();
-  window.addEventListener('resize', function(){ resizeCanvas(); initStars(); });
+  var starResizeTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(starResizeTimer);
+    starResizeTimer = setTimeout(function(){ resizeCanvas(); initStars(); }, 150);
+  });
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) {
+      starRunning = false;
+    } else if (!starRunning) {
+      starRunning = true;
+      requestAnimationFrame(drawStars);
+    }
+  });
 
   // --- 星球鼠标视差（带平滑边界） ---
   var px = 0, py = 0;
+  var planetRaf = null;
   document.addEventListener('mousemove', function(e){
     var mx = e.clientX / width - .5;
     var my = e.clientY / height - .5;
     px = mx * -40; py = my * -30;
-    planet.style.transform = 'translate(calc(-50% + ' + px + 'px), calc(-50% + ' + py + 'px))';
+    if (planetRaf) return;
+    planetRaf = requestAnimationFrame(function(){
+      planet.style.transform = 'translate(calc(-50% + ' + px + 'px), calc(-50% + ' + py + 'px))';
+      planetRaf = null;
+    });
   });
 
   // --- 星球眼睛跟随鼠标 ---
@@ -2484,7 +3413,7 @@ document.querySelector('[data-page="db"]').addEventListener('click', () => {
         var cy = r * cellH + cellH / 2;
         var depth = Math.random();
         span.style.cssText =
-          'position:absolute;font:11px Inter,Noto Sans SC,sans-serif;'+
+          'position:absolute;font:11px Inter,"PingFang SC","Microsoft YaHei",sans-serif;'+
           'font-weight:700;letter-spacing:2.5px;color:rgba(139,92,246,0.05);'+
           'text-transform:uppercase;white-space:nowrap;user-select:none;'+
           'transition:color .25s ease,transform .25s ease;'+
@@ -2495,7 +3424,11 @@ document.querySelector('[data-page="db"]').addEventListener('click', () => {
     }
   }
   buildGrid();
-  window.addEventListener('resize', buildGrid);
+  var gridResizeTimer;
+  window.addEventListener('resize', function(){
+    clearTimeout(gridResizeTimer);
+    gridResizeTimer = setTimeout(buildGrid, 150);
+  });
 
   var observer = new MutationObserver(function() {
     onHome = document.getElementById('page-home').classList.contains('active');
@@ -2520,24 +3453,26 @@ document.querySelector('[data-page="db"]').addEventListener('click', () => {
           'radial-gradient('+spotR+'px at '+mx+'px '+my+'px, '+
           'rgba(168,85,247,0.32) 0%, rgba(99,102,241,0.18) 25%, rgba(139,92,246,0.07) 50%, rgba(124,58,237,0.02) 70%, transparent 85%)';
 
-        // Parallax shift + brightness per cell
+        // Parallax shift + brightness per cell (cache writes to avoid redundant style churn)
         cells.forEach(function(c) {
           var dx = c.cx - mx, dy = c.cy - my;
           var dist = Math.sqrt(dx*dx + dy*dy);
 
           // Parallax ripple: closer cells move away from cursor
           var shift = Math.max(0, 1 - dist / parallaxR);
-          c.el.style.transform = 'translate('+(dx*shift*c.depth*0.6).toFixed(1)+'px,'+(dy*shift*c.depth*0.6).toFixed(1)+'px)';
+          var tf = 'translate('+(dx*shift*c.depth*0.6).toFixed(1)+'px,'+(dy*shift*c.depth*0.6).toFixed(1)+'px)';
 
           // Brightness halo around cursor
           var alpha = dist < brightR ? (c.baseAlpha + (1 - dist/brightR) * 0.55).toFixed(3) : c.baseAlpha.toFixed(3);
-          c.el.style.color = 'rgba(139,92,246,'+alpha+')';
+          var color = 'rgba(139,92,246,'+alpha+')';
 
           // Subtle scale pulse near cursor
           if (dist < brightR) {
             var scale = 1 + (1 - dist/brightR) * 0.12;
-            c.el.style.transform += ' scale(' + scale.toFixed(3) + ')';
+            tf += ' scale(' + scale.toFixed(3) + ')';
           }
+          if (c._tf !== tf) { c._tf = tf; c.el.style.transform = tf; }
+          if (c._color !== color) { c._color = color; c.el.style.color = color; }
         });
         ticking = false;
       });
