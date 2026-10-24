@@ -73,3 +73,8 @@ _multiproc_data/
 check_tmp.js
 _live_index.html
 termprep_dev.db
+
+# ── 提交信息用的临时文件，绝不入库（曾误提交过两次）──
+_msg.txt
+_commit_msg.txt
+_hf_msg.txt
