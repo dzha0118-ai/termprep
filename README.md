@@ -18,6 +18,8 @@ pinned: false
 - 前端：**单个 `web/static/index.html`**（原生 JS，零构建、零 npm）
 - 存储：SQLite（术语库 / 翻译记忆 / 裁决日志 / 检查点会话）
 - 部署：Docker（Hugging Face Space 或任意容器平台）
+- **响应式**：桌面与手机双端可用。手机适配全部写在文件末尾的 `@media` 块里，
+  **不改动任何桌面规则**——桌面视图逐像素不变（有像素级比对保证）
 
 ---
 
@@ -179,7 +181,7 @@ python deploy_hf.py            # 全量同步并推送，Space 自动重建
 | `verify_hitl.py` | 检查点全链路（44 项）：start → 剔除/修正/合并/新增 → resume，逐项核对**真实术语库** |
 | `verify_translation_quality.py` | 全文翻译质量（62 项）：分段不粘连/段落保序、译后规范化、漏译审计、逐块重试、校对守卫、**不允许静默降级到免费引擎** |
 | `verify_extraction_diagnosis.py` | 「为什么提取不出来」（38 项）：AI 清空候选时的兜底、5 种诊断 code、剔除项可加回、刷新可恢复 |
-| `verify_frontend_ui.py` | 前端静态一致性（48 项）：id 唯一、`getElementById` 目标存在、内联处理函数已定义、后端字段有渲染、下载按钮指向真实接口（**零依赖**） |
+| `verify_frontend_ui.py` | 前端静态一致性（66 项）：id 唯一、`getElementById` 目标存在、内联处理函数已定义、后端字段有渲染、下载按钮指向真实接口、**手机适配只许追加 `@media`**（零依赖） |
 | `verify_ui_e2e.js` | UI 端到端（50 项，可选）：jsdom 加载真实页面驱动真实接口，点「下一步」并**真的下载**报告/CSV/JSON/ZIP（需 `npm i --no-save jsdom`） |
 | `verify_hitl_storage.py` | 检查点存储的**多进程并发**稳定性（4 进程 × 60 次读写） |
 | `verify_acceptance.py` | 安全与功能验收（40 项） |

@@ -158,6 +158,64 @@ def main() -> int:
     check("template: template" not in html, "请求里不再传 template")
     check("运行中…" in html, "全自动进度改为中性文案（不伪造步骤名）")
 
+    # ── 11. 手机适配：只许追加 @media，桌面规则必须一个字节都不动 ──
+    print("\n11) 手机适配（桌面视角保持不变）")
+    check('name="viewport"' in html and "width=device-width" in html,
+          "有 viewport meta（否则手机按 980px 渲染）")
+
+    style = re.search(r"<style[^>]*>([\s\S]*?)</style>", html, re.I)
+    css = style.group(1) if style else ""
+    begin = css.find("/* ==MOBILE-ADAPT-BEGIN== */")
+    check(begin > 0, "存在移动端适配块起始标记")
+    mobile_css = css[begin:] if begin >= 0 else ""
+    desktop_css = css[:begin] if begin >= 0 else css
+
+    # 不变式：把 @media 组剥掉之后，移动端块里不允许剩下任何顶层规则。
+    # 换句话说，所有新增声明都被关在媒体查询里 —— 桌面不可能被影响。
+    stripped, depth, i = [], 0, 0
+    while i < len(mobile_css):
+        ch = mobile_css[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif depth == 0:
+            stripped.append(ch)
+        i += 1
+    top_level = re.sub(r"/\*[\s\S]*?\*/", "", "".join(stripped))
+    # 剥完后顶层只应剩下 @media 关键字与空白
+    leftovers = re.sub(r"@media[^{]*", "", top_level)
+    leftovers = re.sub(r"\s+", "", leftovers)
+    check(leftovers == "", "移动端块里没有任何顶层规则（全部在 @media 内）",
+          f"残留: {leftovers[:60]!r}")
+    check("max-width:640px" in mobile_css, "有 640px 断点")
+    check("max-width:768px" in mobile_css, "有 768px 断点（触摸目标）")
+
+    # 桌面规则里不许出现移动端才该有的选择器
+    for bad in ("#watermark-grid{opacity", ".glossary-grid", ".hitl-grid"):
+        check(bad not in desktop_css, f"桌面 CSS 里没有 {bad}")
+
+    # 列数必须与表格类名对齐：8 列表用 hitl-grid，4 列表用 glossary-grid。
+    # 混用会让 nth-child(3) 误伤译文列（真实踩过的坑）。
+    check(html.count('class="hitl-grid"') == 2,
+          "恰好 2 张 8 列裁决表带 hitl-grid", f"{html.count('class=\"hitl-grid\"')} 张")
+    check('class="glossary-grid"' in html, "4 列术语表用 glossary-grid")
+    check("hitl-grid glossary-grid" not in html,
+          "4 列表没有混用 hitl-grid（否则译文列会被隐藏）")
+    check("nth-child(3)" in mobile_css and "glossary-grid" in mobile_css,
+          "两类表的列隐藏规则各自独立")
+
+    # 关键移动端修复项
+    for needle, why in [
+        (".hero h1", "hero 标题在窄屏缩小"),
+        ("#watermark-grid", "手机上压暗星空白纹"),
+        ("min-height: 40px", "触摸目标不小于 40px"),
+        ("-webkit-overflow-scrolling", "表格可滑动"),
+        ("white-space: nowrap; font-size: 13px", "术语列不再竖排成单字"),
+        ("text-overflow: ellipsis", "长会话 id 截断"),
+    ]:
+        check(needle in mobile_css, why, needle)
+
     print("\n" + "=" * 62)
     print(f"PASS: {_PASS}   FAIL: {_FAIL}")
     print("=" * 62)

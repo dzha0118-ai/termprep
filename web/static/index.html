@@ -845,6 +845,131 @@ textarea:focus,input[type="text"]:focus,input[type="number"]:focus,select:focus{
 tr.hitl-rejected{opacity:.45;text-decoration:line-through}
 tr.hitl-merge-src{background:var(--accent-soft);outline:1px dashed var(--accent)}
 tr.hitl-added{background:var(--green-soft)}
+
+/* ==MOBILE-ADAPT-BEGIN== */
+/* ══════════════════════════════════════════════════════════════════
+   手机适配（仅追加，桌面规则一个字节都没有改）
+   原则：只加 @media 覆盖，不改任何既有声明 —— 桌面视角完全不变。
+   实测依据（390×844，Chrome 无头审计）：
+     · 8 列裁决表在 390px 下每格只剩一个字，术语竖排，10 条术语撑出 3636px 高，
+       裁决按钮被挤出屏幕
+     · hero 标题/副标题贴边，功能按钮被切
+     · 星空白纹在手机上过密，干扰阅读
+   ══════════════════════════════════════════════════════════════════ */
+
+@media (max-width:768px) {
+  /* 触摸目标不小于 40px，避免误触与点不中 */
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 34px; }
+  .nav-link, .theme-toggle, .nav-hamburger { min-height: 40px; }
+  /* 长按选中时不要误触发系统的文本选择菜单 */
+  .hero-feat, .btn, .verdict-chip { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  /* 锚点滚动避开固定顶栏 */
+  .page { scroll-margin-top: calc(var(--nav-h) + 8px); }
+}
+
+@media (max-width:640px) {
+  /* ── 首页 hero ── */
+  .hero { padding: 28px 0 var(--space-lg); }
+  .hero h1 { font-size: clamp(28px, 9vw, 34px); letter-spacing: -.4px; line-height: 1.2; }
+  .hero p { font-size: 14px; line-height: 1.65; margin-bottom: 20px; padding: 0 2px; }
+  .hero-badge { font-size: 10.5px; padding: 3px 12px; margin-bottom: 14px; }
+  .hero-features { gap: 8px; }
+  .hero-feat { padding: 8px 13px; font-size: 12.5px; }
+  .hero-feat .icon { width: 18px; height: 18px; }
+
+  /* 星空白纹在窄屏上过密，压暗以免干扰阅读（!important 才能盖过 JS 写的行内 opacity） */
+  #watermark-grid { opacity: .38 !important; }
+
+  /* ── 标题层级 ── */
+  .page-header { margin-bottom: var(--space-lg); }
+  .page-header h1, .page-header h2 { font-size: 22px; line-height: 1.3; }
+  .page-header p { font-size: 13px; line-height: 1.65; }
+
+  /* ── 表格：横向可滑动 + 更紧凑（长表格至少不会把按钮挤没） ── */
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+  .table-wrap table { font-size: 12.5px; }
+  th, td { padding: 8px 10px; }
+
+  /* ── 裁决表：手机上只留「术语 / 译文 / 裁决」三列 ──
+     8 列挤在 390px 里时，术语会被压成一列单字、裁决按钮完全点不到。
+     隐藏的是低价值的元数据列（序号/词频/类型/权重/词性），核心信息一个不丢。 */
+  .hitl-grid th:first-child, .hitl-grid td:first-child,
+  .hitl-grid th:nth-child(3), .hitl-grid td:nth-child(3),
+  .hitl-grid th:nth-child(4), .hitl-grid td:nth-child(4),
+  .hitl-grid th:nth-child(5), .hitl-grid td:nth-child(5),
+  .hitl-grid th:nth-child(6), .hitl-grid td:nth-child(6) { display: none; }
+  .hitl-grid td:nth-child(2) { white-space: nowrap; font-size: 13px; }
+  .hitl-grid td:nth-child(7) { font-size: 12.5px; word-break: break-word; }
+  /* 裁决格做成 flex，四个 chip 均匀排成 2×2，避免「采纳 剔除 修正 / 合并」这种参差 */
+  .hitl-grid td:nth-child(8) {
+    display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; min-width: 112px;
+  }
+  /* ④ 术语表卡片里的表：只留「术语 / 译文」，序号与类型备注在手机上是噪音。
+     注意：这张表只有 4 列，千万不能共用 .hitl-grid 的 8 列规则 —— 那会把
+     nth-child(3)（词频位）隐藏掉，正好把「译文」列整列藏了。 */
+  .glossary-grid th:first-child, .glossary-grid td:first-child,
+  .glossary-grid th:nth-child(4), .glossary-grid td:nth-child(4) { display: none; }
+  .glossary-grid td:nth-child(2) { white-space: nowrap; font-size: 13px; padding-right: 6px; }
+  .glossary-grid td:nth-child(3) { font-size: 12.5px; word-break: break-word; }
+  /* 会话 id 太长会换行，手机上截断成一行 */
+  .hitl-session-label {
+    display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 100%; font-size: 10.5px !important;
+  }
+  .hitl-grid td:nth-child(8) { min-width: 132px; }
+  /* 裁决按钮在手机上排成 2×2，避免一行四个点不准 */
+  .hitl-grid .verdict-chip { padding: 5px 9px; font-size: 11.5px; }
+  .decision-bar { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+  /* ── 全文翻译 / 报告等长文本块 ── */
+  pre { font-size: 12px !important; line-height: 1.75 !important; padding: 10px !important;
+        white-space: pre-wrap !important; word-break: break-word; overflow-x: auto; }
+
+  /* ── 流水线：阶段条与检查点 ── */
+  #pipeline-stepper { gap: 5px !important; margin: 12px 0 2px !important; }
+  #pipeline-stepper > span { font-size: 10.5px !important; padding: 4px 8px !important; }
+  #pipeline-checkpoint { margin-top: 12px !important; }
+  /* 「开始」按钮与右侧提示改为上下排列，别挤在一行里换三次行 */
+  .page .btn + #pipeline-hitl-hint, #pipeline-hitl-hint {
+    display: block; margin: 8px 0 0 0 !important; font-size: 11px !important; line-height: 1.6;
+  }
+  #pipeline-start-btn { width: 100%; justify-content: center; }
+  /* 检查点顶部三个操作按钮在手机上占满整行、依次排列 */
+  #pipeline-checkpoint .btn-primary, #pipeline-checkpoint .btn-secondary { flex: 1 1 auto; }
+  /* 分步卡片的操作栏改为竖排 */
+  .hitl-stages [data-hitl-prev], .hitl-stages [data-hitl-next] { flex: 1 1 46%; }
+  /* 新增术语表单：单个字段占满一行 */
+  #pipeline-checkpoint .form-row { grid-template-columns: 1fr; }
+  #pipeline-checkpoint [data-term-form] .form-group { min-width: 0; }
+
+  /* ── 表单与输入 ── */
+  .form-group input, .form-group select, .form-group textarea { font-size: 15px; } /* ≥16px 才不触发 iOS 缩放，退一档避免过大 */
+  textarea { min-height: 120px; }
+  .card { padding: 14px; }
+  .page { padding: 16px 12px 48px; }
+
+  /* ── 结果卡片与摘要 ── */
+  .result-box { padding: 12px !important; }
+  .result-box h4 { font-size: 14px; }
+  [id^="hitl-result"], #pipeline-hitl-result { font-size: 12.5px; }
+}
+
+@media (max-width:420px) {
+  .hero h1 { font-size: 26px; }
+  .hero-feat { padding: 7px 11px; font-size: 12px; }
+  #pipeline-stepper > span { font-size: 10px !important; padding: 3px 7px !important; }
+  .hitl-grid td:nth-child(8) { min-width: 118px; }
+  .hitl-grid .verdict-chip { padding: 4px 7px; font-size: 11px; }
+  th, td { padding: 7px 8px; }
+}
+
+/* 横屏矮屏：别让固定导航占掉太多高度 */
+@media (max-height:480px) and (orientation:landscape) {
+  .hero { padding: 16px 0; }
+  .hero h1 { font-size: 24px; }
+}
+/* ==MOBILE-ADAPT-END== */
 </style>
 </head>
 <body>
@@ -1138,7 +1263,7 @@ tr.hitl-added{background:var(--green-soft)}
 
       <div class="table-wrap">
         <button class="btn btn-sm btn-secondary" onclick="translateAll()" id="trans-all-btn" style="display:none;margin-bottom:12px">翻译全部术语</button>
-        <table>
+        <table class="hitl-grid">
           <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>词性</th><th>翻译 / 释义</th><th>裁决</th></tr></thead>
           <tbody id="extract-table"></tbody>
         </table>
@@ -1289,7 +1414,7 @@ tr.hitl-added{background:var(--green-soft)}
       </div>
 
       <div class="table-wrap">
-        <table>
+        <table class="hitl-grid">
           <thead><tr><th>#</th><th>术语</th><th>词频</th><th>类型</th><th>权重</th><th>词性</th><th>翻译 / 释义</th><th>裁决</th></tr></thead>
           <tbody id="hitl-table"></tbody>
         </table>
@@ -2416,7 +2541,7 @@ function _hitlStageBody(data, key, sid) {
         '<td style="color:var(--green)">' + esc(g.translation) + '</td>' +
         '<td style="font-size:11px">' + esc(g.type || '') + tag + mf + '</td></tr>';
     }).join('');
-    return '<div class="table-wrap"><table><thead><tr><th>#</th><th>术语</th>' +
+    return '<div class="table-wrap"><table class="glossary-grid"><thead><tr><th>#</th><th>术语</th>' +
       '<th>译文（入库值）</th><th>类型 / 备注</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<div style="margin-top:8px;font-size:11.5px;color:var(--text-muted)">共 ' +
       gl.length + ' 条，下面两处下载的是同一份数据</div>' +
