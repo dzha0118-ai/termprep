@@ -7,6 +7,7 @@ import os
 import queue
 import re
 import sys
+import threading
 import time
 import uuid
 import uvicorn
@@ -143,8 +144,36 @@ def _hitl_save(session_id: str, payload: dict[str, Any]) -> None:
     _HITL_LOCAL_CACHE[session_id] = dict(payload, session_id=session_id)
 
 
+# ── 关联词缓存 ──
+# /api/associate 会调 LLM，一次 2–3 秒；同一个词反复查完全没必要重跑。
+# 单进程 gunicorn，dict + 锁足够。
+_ASSOC_CACHE: dict[tuple, tuple[float, dict[str, Any]]] = {}
+_ASSOC_TTL = 300.0
+_ASSOC_MAX = 256
+_ASSOC_LOCK = threading.Lock()
+
+
+def _assoc_cache_get(key: tuple) -> dict[str, Any] | None:
+    with _ASSOC_LOCK:
+        hit = _ASSOC_CACHE.get(key)
+        if hit is None:
+            return None
+        ts, val = hit
+        if time.time() - ts > _ASSOC_TTL:
+            _ASSOC_CACHE.pop(key, None)
+            return None
+        return val
+
+
+def _assoc_cache_put(key: tuple, val: dict[str, Any]) -> None:
+    with _ASSOC_LOCK:
+        if len(_ASSOC_CACHE) > _ASSOC_MAX:
+            for k in sorted(_ASSOC_CACHE, key=lambda k: _ASSOC_CACHE[k][0])[: _ASSOC_MAX // 2]:
+                _ASSOC_CACHE.pop(k, None)
+        _ASSOC_CACHE[key] = (time.time(), val)
+
+
 def _pipeline_session_or_404(session_id: str) -> dict[str, Any]:
-    """取检查点会话；区分「存储故障(503)」与「会话不存在(404)」。"""
     try:
         sess = _hitl_get(session_id)
     except Exception as e:
@@ -241,6 +270,8 @@ class ExtractIn(BaseModel):
 class SearchIn(BaseModel):
     term: str
     limit: int = 10
+    # 快路径：只查词典源、跳过 AI。手机端先用它秒出结果，再补 AI 结果。
+    fast: bool = False
 
 class TermAddIn(BaseModel):
     word: str
@@ -1225,26 +1256,43 @@ def create_app() -> FastAPI:
             }]
 
         # §5.5 — concurrent multi-source aggregation (dictionary + Wikipedia + AI)
+        # fast=True 时跳过 AI：词典源几百毫秒就能答，LLM 要好几秒。手机端先用
+        # 快路径把结果画出来，再发完整请求把 AI 结果并进去（秒级体感差别很大）。
         payload = search_multi(
             data.term,
             limit=data.limit,
             ai_callable=_ai_lookup if ai_available else None,
+            skip_ai=bool(data.fast),
+            # 只有「首屏」那条快请求才设截止时间：慢源（Wikipedia 常要 2.5s）
+            # 不该拖住第一眼。完整请求**不设截止**，所有源与 AI 都要等到，
+            # 保证最终结果和优化前逐条一致——提速不能以掉结果为代价。
+            deadline_ms=900 if data.fast else None,
         )
         contributed = payload.get("sources_with_results", [])
         return {
             "results": payload["results"],
             "term": data.term,
+            "fast": bool(data.fast),
             # existing field, now truthful: AI ran as one of several sources
             "ai_used": "ai" in contributed,
             # new, additive: which sources actually contributed
             "sources_used": payload["sources_used"],
             "sources_failed": payload["sources_failed"],
+            "sources_pending": payload.get("sources_pending", []),
+            # 服务端耗时：用来区分「应用慢」与「网络/客户端慢」
+            "timings": payload.get("timings", {}),
         }
 
     @app.post("/api/associate")
     def api_associate(data: AssociateIn, request: Request):
         if not data.term.strip():
             raise HTTPException(400, "No term")
+        # 关联词也要调 AI（2–3 秒），重复查询同样值得缓存
+        _akey = ("assoc", data.term.strip().lower(), int(data.limit),
+                 (data.wiki_text or "")[:120])
+        _cached = _assoc_cache_get(_akey)
+        if _cached is not None:
+            return {**_cached, "cached": True}
         # Try AI-powered related terms if client config provided
         client_settings = _ai_settings_from_request(request)
         if client_settings.get("ai_api_key"):
@@ -1272,11 +1320,15 @@ def create_app() -> FastAPI:
                             if w and len(w) < 80:
                                 related.append({"word": w, "translation": "", "relation": "related", "source": "ai", "score": 0.9})
                     if related:
-                        return {"term": data.term, "related": related[:data.limit], "ai_used": True}
+                        _out = {"term": data.term, "related": related[:data.limit], "ai_used": True}
+                        _assoc_cache_put(_akey, _out)
+                        return _out
             except Exception:
                 pass
         related = find_related(data.term, limit=data.limit, wiki_text=data.wiki_text)
-        return {"term": data.term, "related": related}
+        _out = {"term": data.term, "related": related}
+        _assoc_cache_put(_akey, _out)
+        return _out
 
     @app.post("/api/translate")
     def api_translate(data: TranslateIn, request: Request):

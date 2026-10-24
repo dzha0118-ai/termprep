@@ -846,7 +846,23 @@ tr.hitl-rejected{opacity:.45;text-decoration:line-through}
 tr.hitl-merge-src{background:var(--accent-soft);outline:1px dashed var(--accent)}
 tr.hitl-added{background:var(--green-soft)}
 
-/* ==MOBILE-ADAPT-BEGIN== */
+/* ==BG-SEAM-FIX-BEGIN== */
+
+/* ══════════════════════════════════════════════════════════════════
+   背景接缝修复（全局，桌面与手机都受益）
+
+   现象：首页下半部分有一条水平黑线，背景看起来像两段拼接。
+   根因：基础规则 body 里写了 background-attachment:fixed，但深色主题的
+        html.dark body { background: ... } 用的是**简写**，把 attachment
+        重置成了 scroll。于是两个径向渐变只能在 body 盒子内绘制
+        （手机 687px / 桌面 762px），body 比视口矮时，下方那一截就变成
+        另一层颜色 —— 一条贯穿整宽的水平接缝。
+   修法：让 body 至少铺满一屏（dvh 兼容移动端地址栏），渐变才会连续，
+        第二个径向（at 80% 100%）也才落在真正的页面底部。
+   ══════════════════════════════════════════════════════════════════ */
+body { min-height: 100vh; min-height: 100dvh; }
+html.dark body { background-repeat: no-repeat; }
+
 /* ══════════════════════════════════════════════════════════════════
    手机适配（仅追加，桌面规则一个字节都没有改）
    原则：只加 @media 覆盖，不改任何既有声明 —— 桌面视角完全不变。
@@ -857,6 +873,9 @@ tr.hitl-added{background:var(--green-soft)}
      · 星空白纹在手机上过密，干扰阅读
    ══════════════════════════════════════════════════════════════════ */
 
+/* ==BG-SEAM-FIX-END== */
+
+/* ==MOBILE-ADAPT-BEGIN== */
 @media (max-width:768px) {
   /* 触摸目标不小于 40px，避免误触与点不中 */
   .btn { min-height: 40px; }
@@ -1308,6 +1327,9 @@ tr.hitl-added{background:var(--green-soft)}
     <div class="spinner" id="search-spinner"><div class="spinner-dot"></div>搜索中…</div>
     <div class="result-box" id="search-result">
       <h4>搜索结果</h4>
+      <!-- 两段式渲染：先出词典结果，AI 结果随后补上 -->
+      <div id="search-partial-note" style="display:none;margin-bottom:8px;font-size:11.5px;
+           color:var(--text-muted)"></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>关联词</th><th>类型</th><th>释义/翻译</th><th>来源</th><th>相关度</th><th>确认</th></tr></thead>
@@ -3135,6 +3157,65 @@ function handleFile(e) {
 })();
 
 // ── Search ──
+// ── 词典搜索：两段式渲染 ──
+// 旧实现是串行的：/api/search（要等 AI，2–3s）→ 浏览器拉维基 → /api/associate（再等 AI）
+// → 关联词要 5–6 秒才出现，手机上更慢。
+// 现在：快路径（只查词典，几百毫秒）先出结果 → 维基与 AI 在后台并行 → 完整结果覆盖。
+var _searchCache = {};        // 'term|limit' -> {fast: data, full: data}
+var _searchSeq = 0;           // 只认最后一次搜索的结果，防止慢响应覆盖新结果
+var _searchAbort = null;
+
+function _searchRender(data, partial) {
+  _searchTerm = data.term || _searchTerm;
+  _searchResults = data.results || [];
+  var tbody = document.getElementById('search-table');
+  if (!data.results || data.results.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">'
+      + (partial ? '词典源无结果，AI 结果加载中…' : '未找到结果') + '</td></tr>';
+  } else {
+    tbody.innerHTML = data.results.map(function (r, i) {
+      var def = r.definition || (r.definition_missing ? '（该源未提供释义）' : '');
+      var corroborated = (r.also_from && r.also_from.length)
+        ? ' <span style="font-size:10px;color:var(--green);background:var(--green-soft);padding:1px 5px;border-radius:4px;white-space:nowrap">✓ ' + esc(r.also_from.join('+')) + ' 印证</span>'
+        : '';
+      var picked = _searchPicks[i] || '';
+      var actions =
+        '<button class="verdict-chip' + (picked === 'accepted' ? ' on' : '') +
+          '" data-i="' + i + '" data-v="accepted" onclick="markSearchResult(this)">采用</button>' +
+        '<button class="verdict-chip' + (picked === 'rejected' ? ' on reject' : '') +
+          '" data-i="' + i + '" data-v="rejected" onclick="markSearchResult(this)">弃用</button>';
+      return '<tr><td><strong>' + esc(r.word || '') + '</strong>' + corroborated + '</td><td>' +
+        esc(r.type || '') + '</td><td>' + esc(def) + '</td><td>' + esc(r.source || '') +
+        '</td><td>' + (typeof r.score === 'number' ? r.score.toFixed(2) : r.score) + '</td><td>' +
+        actions + '</td></tr>';
+    }).join('');
+  }
+  document.getElementById('search-result').classList.add('show');
+  var note = document.getElementById('search-partial-note');
+  if (note) {
+    note.style.display = partial ? 'block' : 'none';
+    note.textContent = partial ? '已显示词典结果，AI 释义与跨源印证加载中…' : '';
+  }
+}
+
+function _searchRenderAssoc(data) {
+  var tbody2 = document.getElementById('assoc-table');
+  if (!data || !data.related || data.related.length === 0) {
+    tbody2.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">未找到关联术语</td></tr>';
+  } else {
+    var sources = {conceptnet:'ConceptNet', wikipedia:'Wikipedia', youdao:'有道', ai:'AI'};
+    tbody2.innerHTML = data.related.map(function (r) {
+      var trans = r.translation || '';
+      var transHtml = trans ? '<span style="color:var(--green);font-size:12px">' + esc(trans) + '</span>'
+                            : '<span class="text-muted" style="font-size:11px">-</span>';
+      return '<tr><td><strong>' + esc(r.word) + '</strong></td><td>' + transHtml + '</td><td>' +
+        esc(sources[r.source] || r.source || '') + '</td><td>' +
+        (typeof r.score === 'number' ? (r.score * 100).toFixed(0) + '%' : '') + '</td></tr>';
+    }).join('');
+  }
+  document.getElementById('assoc-result').classList.add('show');
+}
+
 async function doSearch() {
   const term = document.getElementById('search-term').value.trim();
   if (!term) { toast('\u8bf7\u8f93\u5165\u641c\u7d22\u8bcd'); return; }
@@ -3147,73 +3228,74 @@ async function doSearch() {
   assocResult.classList.remove('show');
   if (window.petSetThinking) window.petSetThinking(true);
 
-  // 1. Search dictionary
-  try {
-    loadAISettings();
-    const data = await apiWithAI('/api/search', {term, limit});
-    _searchTerm = term;
-    _searchResults = data.results || [];
-    const tbody = document.getElementById('search-table');
-    if (!data.results || data.results.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">未找到结果</td></tr>';
-    } else {
-      tbody.innerHTML = data.results.map((r, i) => {
-        var def = r.definition || (r.definition_missing ? '（该源未提供释义）' : '');
-        // §5.5 — 多源印证：同一条目被 2 个以上来源同时命中（论文「协同校验」的微观演示）
-        var corroborated = (r.also_from && r.also_from.length)
-          ? ' <span style="font-size:10px;color:var(--green);background:var(--green-soft);padding:1px 5px;border-radius:4px;white-space:nowrap">✓ ' + esc(r.also_from.join('+')) + ' 印证</span>'
-          : '';
-        // 采用/弃用：采用的结果会写入裁决日志，resume 时优先用作入库译文
-        var picked = _searchPicks[i] || '';
-        var actions =
-          '<button class="verdict-chip' + (picked === 'accepted' ? ' on' : '') +
-            '" data-i="' + i + '" data-v="accepted" onclick="markSearchResult(this)">采用</button>' +
-          '<button class="verdict-chip' + (picked === 'rejected' ? ' on reject' : '') +
-            '" data-i="' + i + '" data-v="rejected" onclick="markSearchResult(this)">弃用</button>';
-        return '<tr><td><strong>' + esc(r.word || '') + '</strong>' + corroborated + '</td><td>' +
-          esc(r.type || '') + '</td><td>' + esc(def) + '</td><td>' + esc(r.source || '') +
-          '</td><td>' + (typeof r.score === 'number' ? r.score.toFixed(2) : r.score) + '</td><td>' +
-          actions + '</td></tr>';
-      }).join('');
-    }
-    result.classList.add('show');
-  } catch(e) {
-    toast('搜索失败: ' + e.message);
-  }
+  const seq = ++_searchSeq;
+  const ck = term.toLowerCase() + '|' + limit;
+  const cached = _searchCache[ck] || {};
+  const isCurrent = () => seq === _searchSeq;
 
-  // 2. Fetch Wikipedia summary from browser side
-  var wikiText = '';
-  try {
-    var isCN = /[一-鿿]/.test(term);
+  loadAISettings();
+
+  // 浏览器侧维基摘要：与后端搜索并行，不再排在后面等
+  const wikiP = (function () {
+    var isCN = /[\u4e00-\u9fff]/.test(term);
     var wikiUrl = (isCN
       ? 'https://zh.wikipedia.org/api/rest_v1/page/summary/'
-      : 'https://en.wikipedia.org/api/rest_v1/page/summary/'
-    ) + encodeURIComponent(term);
-    var wikiResp = await fetch(wikiUrl);
-    if (wikiResp.ok) {
-      var wikiData = await wikiResp.json();
-      wikiText = wikiData.extract || '';
-    }
-  } catch(e) {}
+      : 'https://en.wikipedia.org/api/rest_v1/page/summary/') + encodeURIComponent(term);
+    return fetch(wikiUrl).then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { return (d && d.extract) || ''; })
+      .catch(function () { return ''; });
+  })();
 
-  // 3. Fetch related terms (pass wiki text for server-side extraction)
-  try {
-    const relData = await apiWithAI('/api/associate', {term, limit: 15, wiki_text: wikiText});
-    const tbody2 = document.getElementById('assoc-table');
-    if (!relData.related || relData.related.length === 0) {
-      tbody2.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">未找到关联术语</td></tr>';
-    } else {
-      var sources = {conceptnet:'ConceptNet', wikipedia:'Wikipedia', youdao:'有道', ai:'AI'};
-      tbody2.innerHTML = relData.related.map(r => {
-        var trans = r.translation || '';
-        var transHtml = trans ? '<span style="color:var(--green);font-size:12px">' + esc(trans) + '</span>' : '<span class="text-muted" style="font-size:11px">-</span>';
-        return '<tr><td><strong>' + esc(r.word) + '</strong></td><td>' + transHtml + '</td><td>' + esc(sources[r.source]||r.source||'') + '</td><td>' + (typeof r.score === 'number' ? (r.score * 100).toFixed(0) + '%' : '') + '</td></tr>';
-      }).join('');
+  // ① 快路径：只查词典源，先出结果
+  let fastData = cached.fast || null;
+  if (!fastData) {
+    try {
+      fastData = await apiWithAI('/api/search', { term, limit, fast: true });
+      if (isCurrent()) { cached.fast = fastData; _searchCache[ck] = cached; }
+    } catch (e) { /* 快路径失败不阻塞完整请求 */ }
+  }
+  if (fastData && isCurrent()) {
+    spinner.classList.remove('show');
+    _searchRender(fastData, true);
+  }
+
+  // ② 关联词：维基最多等 700ms（慢了就不等，关联词本身不依赖它）
+  const wikiText = await Promise.race([
+    wikiP,
+    new Promise(function (r) { setTimeout(function () { r(''); }, 700); }),
+  ]);
+  let assocData = cached.assoc || null;
+  const assocP = assocData
+    ? Promise.resolve(assocData)
+    : apiWithAI('/api/associate', { term, limit: 15, wiki_text: wikiText })
+        .then(function (d) { cached.assoc = d; _searchCache[ck] = cached; return d; })
+        .catch(function () { return null; });
+
+  // ③ 完整结果：补上 AI 与跨源印证
+  let fullData = cached.full || null;
+  if (!fullData) {
+    try {
+      fullData = await apiWithAI('/api/search', { term, limit });
+      if (isCurrent()) { cached.full = fullData; _searchCache[ck] = cached; }
+    } catch (e) {
+      if (isCurrent() && !fastData) toast('搜索失败: ' + e.message);
     }
-    assocResult.classList.add('show');
-  } catch(e) {
-    document.getElementById('assoc-table').innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">关联术语加载失败</td></tr>';
-    assocResult.classList.add('show');
+  }
+  if (isCurrent()) {
+    if (fullData) _searchRender(fullData, false);
+    else if (fastData) _searchRender(fastData, false);
+    spinner.classList.remove('show');
+  }
+
+  // ④ 关联词落地
+  const assoc = await assocP;
+  if (isCurrent()) {
+    if (assoc) _searchRenderAssoc(assoc);
+    else {
+      document.getElementById('assoc-table').innerHTML =
+        '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">关联术语加载失败</td></tr>';
+      assocResult.classList.add('show');
+    }
   }
 
   spinner.classList.remove('show');

@@ -166,9 +166,21 @@ def main() -> int:
     style = re.search(r"<style[^>]*>([\s\S]*?)</style>", html, re.I)
     css = style.group(1) if style else ""
     begin = css.find("/* ==MOBILE-ADAPT-BEGIN== */")
+    mend = css.find("/* ==MOBILE-ADAPT-END== */")
     check(begin > 0, "存在移动端适配块起始标记")
-    mobile_css = css[begin:] if begin >= 0 else ""
+    check(mend > begin > 0, "存在移动端适配块结束标记")
+    mobile_css = css[begin:mend] if begin >= 0 and mend > begin else ""
     desktop_css = css[:begin] if begin >= 0 else css
+
+    # 背景接缝修复是**全局**规则（桌面也有同一条线），单独标记，不属于移动端块
+    bstart = css.find("/* ==BG-SEAM-FIX-BEGIN== */")
+    bend = css.find("/* ==BG-SEAM-FIX-END== */")
+    bgfix = css[bstart:bend] if bstart >= 0 and bend > bstart else ""
+    check(bool(bgfix), "存在背景接缝修复块（全局，桌面与手机都生效）")
+    check("min-height: 100" in bgfix and "100dvh" in bgfix,
+          "body 至少铺满一屏（dvh 兼容移动端地址栏）")
+    check("background-repeat: no-repeat" in bgfix,
+          "深色主题不再平铺背景（background 简写重置 attachment 的后果）")
 
     # 不变式：把 @media 组剥掉之后，移动端块里不允许剩下任何顶层规则。
     # 换句话说，所有新增声明都被关在媒体查询里 —— 桌面不可能被影响。
@@ -215,6 +227,28 @@ def main() -> int:
         ("text-overflow: ellipsis", "长会话 id 截断"),
     ]:
         check(needle in mobile_css, why, needle)
+
+    # ── 12. 词典搜索：两段式渲染（先出词典结果，再补 AI）──
+    print("\n12) 词典搜索两段式渲染")
+    for marker, label in [
+        ("fast: true", "快路径请求（跳过 AI）"),
+        ("search-partial-note", "「AI 结果加载中」提示容器"),
+        ("function _searchRender", "结果渲染抽成函数（可二次渲染）"),
+        ("function _searchRenderAssoc", "关联词渲染抽成函数"),
+        ("_searchCache", "客户端搜索结果缓存"),
+        ("_searchSeq", "只认最后一次搜索（防慢响应覆盖新结果）"),
+        ("Promise.race", "维基摘要限时等待，不阻塞关联词"),
+    ]:
+        check(marker in html, label, marker)
+    check("fast: bool = False" in open(
+        Path(__file__).resolve().parent / "termprep" / "web" / "server.py",
+        encoding="utf-8").read(), "后端 /api/search 支持 fast 参数")
+    check("skip_ai" in open(
+        Path(__file__).resolve().parent / "termprep" / "searcher.py",
+        encoding="utf-8").read(), "searcher 支持 skip_ai")
+    check("_cached_source" in open(
+        Path(__file__).resolve().parent / "termprep" / "searcher.py",
+        encoding="utf-8").read(), "单源结果带 TTL 缓存（重复查询秒回）")
 
     print("\n" + "=" * 62)
     print(f"PASS: {_PASS}   FAIL: {_FAIL}")

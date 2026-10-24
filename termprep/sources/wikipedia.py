@@ -67,6 +67,8 @@ class WikipediaSource(DictSource):
         }
 
         try:
+            # 保持原来的 8s：这一源是维基百科条目摘要，砍超时会**丢结果**。
+            # 首屏速度由「快路径 900ms 截止」保证，不靠牺牲这里。
             resp = requests.get(url, headers=headers, timeout=8)
             if resp.status_code == 200:
                 data = resp.json()

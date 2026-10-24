@@ -16,6 +16,52 @@ from typing import Any, Callable
 
 from termprep.sources import get_available_sources
 
+# ── 单源结果缓存 ──
+# 手机上一次搜索要 2–3 秒，重复查同一个词又完整重跑一遍，完全没命中缓存。
+# 这里按 (源, 词, limit) 缓存**单源原始结果**：既能给「先出词典、后补 AI」的
+# 两段式渲染复用（快路径跑过的源，慢路径不再重复请求），也能让重复查询秒回。
+# 单进程 gunicorn，加锁足够。
+import threading  # noqa: E402
+import time as _time  # noqa: E402
+
+_SOURCE_CACHE: dict[tuple[str, str, int], tuple[float, list[Any]]] = {}
+_SOURCE_CACHE_LOCK = threading.Lock()
+_SOURCE_TTL = 180.0      # 秒（有结果）
+_EMPTY_TTL = 30.0        # 秒（空结果：短，避免把瞬时故障固化）
+_SOURCE_MAX = 512        # 条
+
+
+def _cached_source(name: str, term: str, limit: int, fn: Callable[[], list[Any]]) -> list[Any]:
+    """带 TTL 的单源缓存。
+
+    **有**结果缓存 180s；**空**结果只缓存 30s（并且 AI 的空结果不缓存）——
+    空结果可能只是瞬时故障，缓存太久会让用户在一段时间里查不到本来有的词，
+    那是拿质量换速度，不做。
+    """
+    key = (name, (term or "").strip().lower(), int(limit))
+    now = _time.time()
+    with _SOURCE_CACHE_LOCK:
+        hit = _SOURCE_CACHE.get(key)
+        if hit is not None:
+            ts, cached = hit
+            ttl = _SOURCE_TTL if cached else _EMPTY_TTL
+            if now - ts < ttl:
+                return cached
+    out = fn()
+    if out or name != "ai":          # AI 的空结果不缓存（模型抖动/限流不该粘住）
+        with _SOURCE_CACHE_LOCK:
+            if len(_SOURCE_CACHE) > _SOURCE_MAX:
+                for k in sorted(_SOURCE_CACHE, key=lambda k: _SOURCE_CACHE[k][0])[: _SOURCE_MAX // 2]:
+                    _SOURCE_CACHE.pop(k, None)
+            _SOURCE_CACHE[key] = (now, out)
+    return out
+
+
+def clear_source_cache() -> None:
+    """清缓存（测试用）。"""
+    with _SOURCE_CACHE_LOCK:
+        _SOURCE_CACHE.clear()
+
 # Authoritative dictionary sources rank ahead of the AI fallback (§5.5).
 _SOURCE_RANK: dict[str, int] = {
     "youdao": 0,
@@ -86,6 +132,8 @@ def search_multi(
     term: str,
     limit: int = 10,
     ai_callable: Callable[[], list[dict[str, Any]]] | None = None,
+    skip_ai: bool = False,
+    deadline_ms: int | None = None,
 ) -> dict[str, Any]:
     """Aggregate every available source concurrently, then merge and rank (§5.5).
 
@@ -95,30 +143,63 @@ def search_multi(
         ai_callable: Optional zero-argument callable returning AI-sourced results.
             It is executed inside the same thread pool, so the AI lookup runs in
             parallel with the dictionary sources instead of pre-empting them.
+        skip_ai: Skip the AI source entirely — used for the *fast* first paint.
+            Dictionary sources answer in a few hundred ms; the LLM takes seconds,
+            so the UI shows dictionary results first and merges AI ones after.
+        deadline_ms: Stop waiting after this many milliseconds and return what is
+            ready. A slow source that yields nothing (Wikipedia answering in 2.5s
+            with zero hits) must not hold the first paint hostage.
 
     Returns:
-        ``{"results": [...], "sources_used": [...], "sources_failed": [...]}``.
+        ``{"results": [...], "sources_used": [...], "sources_failed": [...],
+        "sources_pending": [...]}``.
         Merged results carry ``also_from`` when more than one source agrees.
     """
     jobs: dict[str, Callable[[], list[Any]]] = {}
+    timing: dict[str, int] = {}
+
+    def _timed(name: str, fn: Callable[[], list[Any]]) -> list[Any]:
+        """记录单源耗时（毫秒）——排查「为什么慢」必须有数据，不能靠猜。"""
+        t0 = _time.perf_counter()
+        try:
+            return fn()
+        finally:
+            timing[name] = int((_time.perf_counter() - t0) * 1000)
+
+    _t_start = _time.perf_counter()
     for src in get_available_sources():
         if getattr(src, "available", False):
-            jobs[src.name] = (lambda s=src: s.search(term, limit=limit))
-    if ai_callable is not None:
-        jobs["ai"] = ai_callable
+            jobs[src.name] = (lambda s=src: _timed(
+                s.name, lambda: _cached_source(s.name, term, limit,
+                                               lambda: s.search(term, limit=limit))))
+    if ai_callable is not None and not skip_ai:
+        jobs["ai"] = (lambda: _timed("ai", lambda: _cached_source("ai", term, limit, ai_callable)))
 
     raw: dict[str, list[Any]] = {}
     failed: list[str] = []
+    pending: list[str] = []
     if jobs:
-        with ThreadPoolExecutor(max_workers=min(6, len(jobs))) as pool:
+        from concurrent.futures import wait as _wait
+
+        pool = ThreadPoolExecutor(max_workers=min(6, len(jobs)))
+        try:
             futures = {pool.submit(fn): name for name, fn in jobs.items()}
-            for future, name in futures.items():
+            if deadline_ms and deadline_ms > 0:
+                done, not_done = _wait(list(futures), timeout=deadline_ms / 1000.0)
+            else:
+                done, not_done = set(futures), set()
+            for future in done:
+                name = futures[future]
                 try:
                     raw[name] = future.result() or []
                 except Exception:
                     # one broken source must never break the whole lookup
                     raw[name] = []
                     failed.append(name)
+            for future in not_done:
+                pending.append(futures[future])
+        finally:
+            pool.shutdown(wait=False)   # 不等迟到的线程，避免拖住首屏
 
     out: list[dict[str, Any]] = []
     index: dict[tuple[str, str], dict[str, Any]] = {}
@@ -185,8 +266,16 @@ def search_multi(
         "results": out[:limit],
         "sources_used": sorted(raw.keys()),
         "sources_failed": sorted(failed),
+        # 超时未返回的源（慢源）：前端可据此提示「还有源在加载」
+        "sources_pending": sorted(pending),
         # which of the queried sources actually produced at least one entry
         "sources_with_results": sorted(n for n in raw if raw.get(n)),
+        # 服务端真实耗时（毫秒）：区分「应用慢」还是「网络慢」
+        "timings": {
+            "per_source_ms": dict(sorted(timing.items(), key=lambda kv: -kv[1])),
+            "elapsed_ms": int((_time.perf_counter() - _t_start) * 1000),
+            "deadline_ms": deadline_ms,
+        },
     }
 
 
